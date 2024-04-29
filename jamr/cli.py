@@ -4,7 +4,7 @@ import click
 
 from grass_session import Session
 
-import regions
+from jamr.regions import set_regions
 
 
 def start_session(gisdb):
@@ -31,7 +31,7 @@ def preprocess(config):
     session = start_session(gisdb = "~/grassdata")
 
     # Create regions
-    regions.set_regions()
+    set_regions()
 
     session.close()
 
