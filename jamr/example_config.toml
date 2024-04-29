@@ -1,13 +1,14 @@
 title = "JAMR example configuration"
 
 [main]
-scratch = 'data/scratch'
+gisdb = '/exports/geos.ed.ac.uk/moulds_hydro/grassdata'
+scratch = '/exports/geos.ed.ac.uk/moulds_hydro/scratch'
 
 [landfraction]
 
 [topography]
 [topography.merit]
-data_directory = 'data/merit/dem'
+data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/MERIT/dem'
 
 [landcover]
 
