@@ -1,0 +1,17 @@
+SLOPE_FN=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_pdm/jamr_merit_dem_slope_globe_0.008333Deg.tif
+FEXP_FN=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_top/jamr_merit_dem_fexp_globe_0.004167Deg.tif
+MERIT_TI_MEAN_FN=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_top/jamr_merit_dem_ti_mean_globe_0.002083Deg.tif
+HYDRO_TI_MEAN_FN=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_top/jamr_hydrosheds_ti_mean_globe_0.004167Deg.tif
+MERIT_DIRECTION_BASENM=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_rivers_props/jamr_camaflood_direction
+MERIT_AREA_BASENM=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_rivers_props/jamr_camaflood_area
+HYDRO_DIRECTION_BASENM=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_rivers_props/jamr_hydrosheds_direction
+HYDRO_AREA_BASENM=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_rivers_props/jamr_hydrosheds_area
+MERIT_LAND_FRAC_BASENM=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_land_frac/jamr_camaflood_land_frac
+HYDRO_LAND_FRAC_FN=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_land_frac/jamr_hydrosheds_land_frac_globe_0.008333.tif
+ESA_LAND_FRAC_FN=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_land_frac/jamr_esa_cci_lc_land_frac_globe_0.008333Deg.tif
+FRAC_BASENM=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_frac/jamr_esa_cci_lc_frac
+SURF_HGT_FN=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_frac/jamr_merit_dem_surf_hgt_globe_0.008333Deg.tif
+WEIGHTED_ELEV_BASENM=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_frac/jamr_esa_cci_lc_weighted_elev
+SOIL_BASENM=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_soil_props/jamr_soilgrids
+ALBSOIL_FN=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_soil_props/jamr_houldcroft_albsoil_globe_0.008333Deg.tif
+LOGN_DIR=/home/sm510/projects/jamr/data-raw/bin/../../data/maps1k/jules_overbank_props
