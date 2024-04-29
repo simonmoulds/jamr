@@ -2,14 +2,43 @@
 import sys
 import click
 
+from grass_session import Session
 
-@click.command()
+import regions
+
+
+def start_session(gisdb):
+    PERMANENT = Session()
+    PERMANENT.open(gisdb = gisdb, location = "jamr", create_opts='EPSG:4326')
+    return PERMANENT
+
+
+@click.group()
 def main(args=None):
     """Console script for jamr."""
-    click.echo("Replace this message by putting your code into "
-               "jamr.cli.main")
-    click.echo("See click documentation at https://click.palletsprojects.com/")
-    return 0
+    pass
+    # click.echo("Replace this message by putting your code into "
+    #            "jamr.cli.main")
+    # click.echo("See click documentation at https://click.palletsprojects.com/")
+    # return 0
+
+
+@main.command()
+@click.option('--config', default='config.toml', help='Path to configuration file')
+def preprocess(config):
+    click.echo("Preprocess subcommand is working")
+
+    session = start_session(gisdb = "~/grassdata")
+
+    # Create regions
+    regions.set_regions()
+
+    session.close()
+
+
+@main.command()
+def process(config):
+    click.echo("Process subcommand is working")
 
 
 if __name__ == "__main__":

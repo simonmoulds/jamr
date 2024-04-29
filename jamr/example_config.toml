@@ -1,0 +1,14 @@
+title = "JAMR example configuration"
+
+[main]
+scratch = 'data/scratch'
+
+[landfraction]
+
+[topography]
+[topography.merit]
+data_directory = 'data/merit/dem'
+
+[landcover]
+
+[soil]
