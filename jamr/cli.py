@@ -1,10 +1,12 @@
 """Console script for jamr."""
 import sys
 import click
+import tomllib
 
 from grass_session import Session
 
 from jamr.regions import set_regions
+from jamr.elevation import process_merit_dem
 
 
 def start_session(gisdb):
@@ -28,10 +30,20 @@ def main(args=None):
 def preprocess(config):
     click.echo("Preprocess subcommand is working")
 
-    session = start_session(gisdb = "~/grassdata")
+    # Parse config
+    with open(config, "rb") as f:
+        config_dict = tomllib.load(f)
+
+    gisdb = config_dict['main']['gisdb']
+
+    # Start GRASS session
+    session = start_session(gisdb = gisdb)
 
     # Create regions
     set_regions()
+
+    # Process elevation data
+    process_merit_dem(config_dict)
 
     session.close()
 

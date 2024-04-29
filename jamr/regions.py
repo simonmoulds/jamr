@@ -71,10 +71,14 @@ def _set_region(region_name, res_decimal_degrees, extent = [-180, -90, 180, 90])
     # gscript.run_command(
     #     "g.region", e=east, w=west, n=north, s=south, res=res, save=region_name
     # )
-    g.region(e=east, w=west, n=north, s=south, res=res, save=region_name)
+    try:
+        g.region(e=east, w=west, n=north, s=south, res=res_dms, save=region_name, overwrite=True)
+    except:
+        pass
+
     return None
 
 
-def set_regions(config):
+def set_regions():
     for region_name, region_def in REGIONS.items():
         res = _set_region(region_name, region_def['res'], region_def['extent'])
