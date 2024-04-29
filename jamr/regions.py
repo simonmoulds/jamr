@@ -12,7 +12,7 @@ from grass.pygrass.modules.shortcuts import general as g
 # from grass.pygrass.modules.shortcuts import vector as v
 # from grass.pygrass.modules.shortcuts import temporal as t
 
-from constants import REGIONS
+from jamr.constants import REGIONS
 
 
 def to_dms(decimal_degrees):
