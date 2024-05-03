@@ -12,6 +12,7 @@ class Configuration:
         with open(configfile, "rb") as f:
             config_dict = tomllib.load(f)
 
+
     def landfraction(self):
         pass
 

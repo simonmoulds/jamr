@@ -1,8 +1,9 @@
 title = "JAMR example configuration"
 
 [main]
-gisdb = '/exports/geos.ed.ac.uk/moulds_hydro/grassdata'
-scratch = '/exports/geos.ed.ac.uk/moulds_hydro/scratch'
+grass_gis_database = '/exports/geos.ed.ac.uk/moulds_hydro/grassdata'
+data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data'
+scratch_directory = '/exports/geos.ed.ac.uk/moulds_hydro/scratch'
 
 [landfraction]
 
