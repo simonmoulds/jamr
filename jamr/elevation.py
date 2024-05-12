@@ -3,7 +3,10 @@
 import os
 import re
 import glob
+import time
 # import grass.script as gscript
+
+import grass.exceptions 
 
 # import grass python libraries
 from grass.pygrass.modules.shortcuts import general as g
@@ -33,7 +36,7 @@ def process_merit_dem(config, overwrite=False):
     # Remove any existing mask
     try:
         r.mask(flags='r')
-    except:
+    except grass.exceptions.CalledModuleError:
         pass
 
     # Get data directories
@@ -54,30 +57,30 @@ def process_merit_dem(config, overwrite=False):
     # Resample elevation to three coarser resolutions
     merit_rgns = ['globe_0.008333Deg', 'globe_0.004167Deg', 'globe_0.002778Deg']
 
-    # for f in merit_files:
+    for f in merit_files:
+        lat, lon = parse_merit_filename(f)
+        outfiles = [os.path.join(scratch, f'merit_dem_avg_{lat}_{lon}_{rgn}.tif') for rgn in merit_rgns]
 
-    #     lat, lon = parse_merit_filename(f)
+        # If the above outfiles exist then we can skip this step
+        recreate = not all([os.path.exists(f) for f in outfiles])
+        if not recreate or overwrite:
+            continue
 
-    #     outfiles = [os.path.join(scratch, f'merit_dem_avg_{lat}_{lon}_{rgn}.tif') for rgn in merit_rgns]
+        # Import MERIT data file
+        r.in_gdal(input=f, output=f'merit_dem', overwrite=True, flags='a')
 
-    #     # If the above outfiles exist then we can skip this step
-    #     recreate = not all([os.path.exists(f) for f in outfiles])
-
-    #     if not recreate or overwrite:
-    #         continue
-
-    #     # Import MERIT data file
-    #     r.in_gdal(input=f, output='merit_dem', overwrite=True, flags='a')
-
-    #     for rgn in merit_rgns:
-    #         res = REGIONS[rgn]['res']
-    #         mapname=f'merit_dem_avg_{lat}_{lon}_{rgn}'
-    #         g.region(raster='merit_dem', res=res)
-    #         r.resamp_stats(input='merit_dem', output=mapname, method='average', overwrite=True)
-    #         r.out_gdal(input=mapname, output=os.path.join(scratch, mapname + '.tif'), createopt='COMPRESS=DEFLATE', overwrite=True)
+        for rgn in merit_rgns:
+            res = REGIONS[rgn]['res']
+            mapname=f'merit_dem_avg_{lat}_{lon}_{rgn}'
+            g.region(raster='merit_dem', res=res)
+            r.resamp_stats(input='merit_dem', output=mapname, method='average', overwrite=True)
+            r.out_gdal(input=mapname, output=os.path.join(scratch, mapname + '.tif'), createopt='COMPRESS=DEFLATE', overwrite=True)
 
     for rgn in merit_rgns:
-        # pattern = re.compile('^merit_dem_avg_[n|s][0-9]+[e|w][0-9]+_' + rgn + '.tif$')
+
+        # # Dump list of file names to file
+        # g.list(type='raster', pattern=f'merit_dem_avg_*_{rgn}', output='/tmp/tilelist.csv', overwrite=True)
+
         pattern = re.compile('^merit_dem_avg_[n|s][0-9]+_[e|w][0-9]+_' + rgn + '.tif$')
         files = os.listdir(scratch)
         merit_files = []
@@ -89,18 +92,25 @@ def process_merit_dem(config, overwrite=False):
         res = REGIONS[rgn]['res']
         vrt_fn = os.path.join(scratch, f'merit_dem_{rgn}.vrt')
         vrt_opts = gdal.BuildVRTOptions(xRes=res, yRes=res, outputBounds=(-180, -90, 180, 90))
-        vrt = gdal.BuildVRT(vrt_fn, merit_files, options=vrt_opts)
+        my_vrt = gdal.BuildVRT(vrt_fn, merit_files, options=vrt_opts)
+        my_vrt = None 
 
         # Read data
         r.in_gdal(input=vrt_fn, output=f'merit_dem_{rgn}_tmp', overwrite=True, flags='a')
 
         # Fix subtle errors in bounds
-        r.mapcalc('{r} = {a}'.format(r=f'merit_dem_{rgn}', a=f'merit_dem_{rgn}_tmp'))
+        r.mapcalc('{r} = {a}'.format(r=f'merit_dem_{rgn}', a=f'merit_dem_{rgn}_tmp'), overwrite=True)
 
-        # Write a copy to scratch directory
-        r.out_gdal(input=f'merit_dem_{rgn}', output=os.path.join(scratch, f'merit_dem_{rgn}.tif'), createopt='COMPRESS=DEFLATE,BIGTIFF=YES', overwrite=True)
+        # # Write a copy to scratch directory
+        # r.out_gdal(input=f'merit_dem_{rgn}', output=os.path.join(scratch, f'merit_dem_{rgn}.tif'), createopt='COMPRESS=DEFLATE,BIGTIFF=YES', overwrite=True)
 
         # Clean up
         g.remove(type='raster', name=f'merit_dem_{rgn}_tmp', flags='f')
+
+    # Create slope map [needed for PDM] 
+    try:
+        r.slope_aspect(elevation='merit_dem_globe_0.004167Deg', slope='merit_dem_slope_globe_0.004167Deg', format='degrees', overwrite=overwrite)
+    except grass.exceptions.CalledModuleError:
+        pass 
 
     return 0

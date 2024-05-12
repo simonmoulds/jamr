@@ -1,44 +1,141 @@
 #!/usr/bin/env python3
 
+import os
+import re
+import glob
+import time
+# import grass.script as gscript
+
+import grass.exceptions 
+
+# import grass python libraries
+from grass.pygrass.modules.shortcuts import general as g
+from grass.pygrass.modules.shortcuts import raster as r
+
+from osgeo import gdal
+
+from jamr.constants import REGIONS
+
+RGN = 1 / 360. 
+RGN_STR = 'globe_0.002778Deg'
+
+
+def get_esacci_landcover_map(esa_lc_data_directory, year):
+    pattern = re.compile(f'^(ESACCI|C3S)-LC-L4-LCCS-Map-300m-P1Y-{year}-v.*.tif$')
+    files = glob.glob(esa_lc_data_directory + '/*.tif', recursive=True)
+    esa_files = []
+    for f in files:
+        fpath, fname = os.path.split(f)
+        if pattern.match(fname):
+            esa_files.append(os.path.join(fpath, fname))
+    if len(esa_files) == 0:
+        raise ValueError("No files found!")
+
+    if len(esa_files) > 1:
+        # This should retrieve the latest map
+        esa_files.sort(reverse=True)
+
+    return esa_files[0]   
+
+
+def process_land_fraction(config, overwrite=False):
+    # There is some discrepancy between ESA_CCI_WB and ESA_CCI_LC. To get
+    # around this we implement a two-step procedure:
+    # (i)  Aggregate by taking the minimum value, which will in effect
+    #      classify the 300m grid square as ocean if *any* fine resolution
+    #      grid squares are classified as ocean.
+    # (ii) Use the 2015 land cover map to identify ocean cells *if* the
+    #      LC map contains water (code 210) *and* the map created in (i)
+    #      is classified as ocean.
+
+    # Read ESACCI water bodies dataset (@150m)
+    esa_data_file = config['landfraction']['esa']['data_file']
+    try:
+        r.in_gdal(input=esa_data_file, output='esa_ocean_land', flags='a', overwrite=overwrite)
+    except grass.exceptions.CalledModuleError:
+        pass 
+
+    g.region(region='globe_0.002778Deg')
+
+    try:
+        r.resamp_stats(input='esa_ocean_land', output='water_bodies_min', method='minimum', overwrite=overwrite)
+    except grass.exceptions.CalledModuleError:
+        pass
+
+    try:
+        r.mapcalc('ocean_min = if(water_bodies_min == 0, 1, 0)', overwrite=overwrite)
+    except grass.exceptions.CalledModuleError:
+        pass
+
+    # Calculate ocean grid cells as cells in which ESA CCI LC is classified as water *and* ESA CCI WB (@300m) is classified as ocean 
+    esa_lc_data_directory = config['landcover']['esa']['data_directory']
+    esa_lc_data_file = get_esacci_landcover_map(esa_lc_data_directory, 2015)
+    try:
+        r.in_gdal(input=esa_lc_data_file, output='esacci_lc_ref', overwrite=overwrite)
+    except grass.exceptions.CalledModuleError:
+        pass 
+
+    try:
+        r.mapcalc('esacci_lc_water = if(esacci_lc_ref == 210, 1, 0)', overwrite=overwrite)
+    except grass.exceptions.CalledModuleError:
+        pass
+
+    try:
+        r.mapcalc('ocean = if((ocean_min==1 && esacci_lc_water==1), 1, 0)', overwrite=overwrite)
+    except grass.exceptions.CalledModuleError:
+        pass 
+
+    try:
+        r.mapcalc(f'esacci_landfrac_{RGN_STR} = 1 - ocean', overwrite=overwrite)
+    except grass.exceptions.CalledModuleError:
+        pass 
+
+    return 0
+
+
+# # Calculate ocean grid cells as cells in which ESA CCI LC is classified as
+# # water *and* ESA CCI WB (@ 300m) is classified as ocean.
+# r.mapcalc "ocean = if((ocean_min==1 && esacci_lc_water==1), 1, 0)" $OVERWRITE
+# r.mapcalc \
+#     "esacci_land_frac_${RGN_STR} = 1 - ocean" \
+#     $OVERWRITE
+
+# # Write output at multiple resolutions (used in the jules_frac routine)
+# declare -a RGNS=(0.25 0.1 0.083333333333333 0.05 0.01666666666666 0.008333333333333)
+# for RGN in "${RGNS[@]}"
+# do
+#     RGN_STR=globe_$(printf "%0.6f" ${RGN})Deg
+#     g.region region=${RGN_STR}
+#     r.resamp.stats \
+# 	-w \
+# 	input=esacci_land_frac_globe_0.002778Deg \
+# 	output=esacci_land_frac_${RGN_STR}_tmp \
+# 	method=average \
+# 	--overwrite
+#     r.mapcalc \
+# 	"esacci_land_frac_${RGN_STR} = if(esacci_land_frac_${RGN_STR}_tmp>0,1,0)" \
+# 	--overwrite
+#     g.remove -f type=raster name=esacci_land_frac_${RGN_STR}_tmp
+# done
+# # (ii) Import land cover map (use 2015 as base year), and simplify
+# #      to land/water mask (water is code 210)
+# YEAR=2015
+# r.in.gdal \
+#     -a \
+#     input=$ESACCIDIR/ESACCI-LC-L4-LCCS-Map-300m-P1Y-${YEAR}-v2.0.7.tif \
+#     output=esacci_lc_${YEAR} \
+#     $OVERWRITE
+
+
+# g.region region=globe_0.002778Deg
+# g.region -p
+# r.mapcalc "ocean_min = if(water_bodies_min == 0, 1, 0)" $OVERWRITE
 # r.mask -r
 
-# # ===========================================================
-# # Region based on CaMa-Flood (MERIT)
-# # ===========================================================
-
-# declare -a MERIT_RGNS=(0.25 0.1 0.0833333333333 0.05 0.016666666666)
-# for MERIT_RGN in "${MERIT_RGNS[@]}"
-# do
-#     MERIT_RGN_STR=globe_$(printf "%0.6f" ${MERIT_RGN})Deg
-#     g.region region=${MERIT_RGN_STR}
-#     r.mapcalc \
-# 	"cama_land_frac_${MERIT_RGN_STR} = if(isnull(merit_draindir_trip_${MERIT_RGN_STR}),0,1)" \
-# 	$OVERWRITE
-# done
-
-# # ===========================================================
-# # Region based on HydroSHEDS data (land fraction @ 1km)
-# # ===========================================================
-
-# HYDRO_RGN=0.0083333333333
-# HYDRO_RGN_STR=globe_$(printf "%0.6f" ${HYDRO_RGN})Deg
-# g.region region=${HYDRO_RGN_STR}
-# r.mapcalc \
-#     "hydrosheds_land_frac_${HYDRO_RGN_STR} = if(isnull(hydrosheds_draindir_trip_${HYDRO_RGN_STR}),0,1)" \
-#     $OVERWRITE
 
 # # ===========================================================
 # # Region based on ESA CCI data
 # # ===========================================================
-
-# # There is some discrepancy between ESA_CCI_WB and ESA_CCI_LC. To get
-# # around this we implement a two-step procedure:
-# # (i)  Aggregate by taking the minimum value, which will in effect
-# #      classify the 300m grid square as ocean if *any* fine resolution
-# #      grid squares are classified as ocean.
-# # (ii) Use the 2015 land cover map to identify ocean cells *if* the
-# #      LC map contains water (code 210) *and* the map created in (i)
-# #      is classified as ocean.
 
 # RGN=0.002777777777777777
 # RGN_STR=globe_$(printf "%0.6f" ${RGN})Deg
@@ -110,6 +207,30 @@
 
 # # NOT USED:
 
+# # ===========================================================
+# # Region based on CaMa-Flood (MERIT)
+# # ===========================================================
+
+# declare -a MERIT_RGNS=(0.25 0.1 0.0833333333333 0.05 0.016666666666)
+# for MERIT_RGN in "${MERIT_RGNS[@]}"
+# do
+#     MERIT_RGN_STR=globe_$(printf "%0.6f" ${MERIT_RGN})Deg
+#     g.region region=${MERIT_RGN_STR}
+#     r.mapcalc \
+# 	"cama_land_frac_${MERIT_RGN_STR} = if(isnull(merit_draindir_trip_${MERIT_RGN_STR}),0,1)" \
+# 	$OVERWRITE
+# done
+
+# # ===========================================================
+# # Region based on HydroSHEDS data (land fraction @ 1km)
+# # ===========================================================
+
+# HYDRO_RGN=0.0083333333333
+# HYDRO_RGN_STR=globe_$(printf "%0.6f" ${HYDRO_RGN})Deg
+# g.region region=${HYDRO_RGN_STR}
+# r.mapcalc \
+#     "hydrosheds_land_frac_${HYDRO_RGN_STR} = if(isnull(hydrosheds_draindir_trip_${HYDRO_RGN_STR}),0,1)" \
+#     $OVERWRITE
 # # # Import some additional data to check the correspondence between this
 # # # ocean mask and other land masks
 # # declare -a MERIT_RGNS=(0.25 0.1 0.0833333333333 0.05 0.016666666666)

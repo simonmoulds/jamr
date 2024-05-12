@@ -6,11 +6,23 @@ data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data'
 scratch_directory = '/exports/geos.ed.ac.uk/moulds_hydro/scratch'
 
 [landfraction]
+[landfraction.esa]
+data_file = '/exports/geos.ed.ac.uk/moulds_hydro/data/ESACCI_WB/ESACCI-LC-L4-WB-Ocean-Land-Map-150m-P13Y-2000-v4.0.tif'
 
 [topography]
 [topography.merit]
 data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/MERIT/dem'
 
+[topography.hydrography90m]
+data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/Hydrography90m'
+
+[topography.marthews]
+data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/marthews_topographic_index'
+
 [landcover]
+[landcover.esa]
+data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/ESACCI_LC'
 
 [soil]
+[soil.soilgrids]
+data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/SoilGrids_1000m'

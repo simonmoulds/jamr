@@ -15,6 +15,9 @@ from jamr.download import (download_esacci_landcover,
 
 from jamr.regions import set_regions
 from jamr.elevation import process_merit_dem
+from jamr.landfraction import process_land_fraction
+from jamr.topography import process_topographic_index
+from jamr.soil import process_soil_data
 
 
 def parse_config(config):
@@ -48,7 +51,7 @@ def download(config):
     # download_esacci_waterbodies(config_dict)
     # download_soilgrids250m(config_dict)
     # download_soilgrids1000m(config_dict)
-    # download_hydrography90m(config_dict)
+    # # download_hydrography90m(config_dict)
     # download_merit_dem(config_dict)
     download_merit_hydro(config_dict)
 
@@ -67,13 +70,13 @@ def preprocess(config):
     # Create regions
     set_regions()
 
-    # Process elevation data
-    process_merit_dem(config_dict)
+    # process_land_fraction(config_dict, overwrite=False)
 
-    # # Process land fraction data
-    # process_land_frac(config_dict)
-
-    # Process topography data
+    # process_merit_dem(config_dict, overwrite=False)
+    region='uk_1.008333Deg'
+    process_soil_data(config_dict, region, overwrite=False)
+    # # TODO download dataset from CEH 
+    # process_topographic_index(config_dict, overwrite=False)
 
     # Process land cover fraction
 
