@@ -16,81 +16,122 @@ from osgeo import gdal
 
 from jamr.constants import REGIONS
 
+from jamr.utils import *
+from jamr.dataset import AncillaryDataset
+from jamr.landcover import ESACCILC, ESACCIWB
+
 RGN = 1 / 360. 
 RGN_STR = 'globe_0.002778Deg'
 
 
-def get_esacci_landcover_map(esa_lc_data_directory, year):
-    pattern = re.compile(f'^(ESACCI|C3S)-LC-L4-LCCS-Map-300m-P1Y-{year}-v.*.tif$')
-    files = glob.glob(esa_lc_data_directory + '/*.tif', recursive=True)
-    esa_files = []
-    for f in files:
-        fpath, fname = os.path.split(f)
-        if pattern.match(fname):
-            esa_files.append(os.path.join(fpath, fname))
-    if len(esa_files) == 0:
-        raise ValueError("No files found!")
+class ESALandFraction(AncillaryDataset):
+    def __init__(self, 
+                 config: dict,
+                 waterbodies: ESACCIWB,
+                 landcover: ESACCILC,
+                 region: str,
+                 overwrite: bool):
 
-    if len(esa_files) > 1:
-        # This should retrieve the latest map
-        esa_files.sort(reverse=True)
+        super().__init__(config, region, overwrite)
+        self.waterbodies = waterbodies 
+        self.landcover = landcover 
+        self.set_mapnames() 
 
-    return esa_files[0]   
+    def set_mapnames(self): 
+        self.mapname = f'esacci_landfrac_{self.region}'
 
+    def compute(self):
 
-def process_land_fraction(config, overwrite=False):
-    # There is some discrepancy between ESA_CCI_WB and ESA_CCI_LC. To get
-    # around this we implement a two-step procedure:
-    # (i)  Aggregate by taking the minimum value, which will in effect
-    #      classify the 300m grid square as ocean if *any* fine resolution
-    #      grid squares are classified as ocean.
-    # (ii) Use the 2015 land cover map to identify ocean cells *if* the
-    #      LC map contains water (code 210) *and* the map created in (i)
-    #      is classified as ocean.
+        # Resample waterbodies map to the landcover map resolution
+        g.region(raster=self.landcover.mapnames[2015])
+        try:
+            r.resamp_stats(
+                input=self.waterbodies.mapname, 
+                output='water_bodies_min_tmp', method='minimum', overwrite=self.overwrite)
+        except grass.exceptions.CalledModuleError:
+            pass
 
-    # Read ESACCI water bodies dataset (@150m)
-    esa_data_file = config['landfraction']['esa']['data_file']
-    try:
-        r.in_gdal(input=esa_data_file, output='esa_ocean_land', flags='a', overwrite=overwrite)
-    except grass.exceptions.CalledModuleError:
-        pass 
+        if not grass_map_exists('raster', self.mapname, 'PERMANENT') or self.overwrite:
+            # FIXME resolution might be wrong here
+            g.region(region=self.region)
+            try:
+                r.mapcalc('ocean_min_tmp = if(water_bodies_min_tmp == 0, 1, 0)', overwrite=self.overwrite)
+            except grass.exceptions.CalledModuleError:
+                pass
+            
+            try:
+                esaccilc_ref_map = self.landcover[2015]
+                r.mapcalc(f'esacci_lc_water_tmp = if({esaccilc_ref_map} == 210, 1, 0)', overwrite=self.overwrite)
+            except grass.exceptions.CalledModuleError:
+                pass
 
-    g.region(region='globe_0.002778Deg')
-
-    try:
-        r.resamp_stats(input='esa_ocean_land', output='water_bodies_min', method='minimum', overwrite=overwrite)
-    except grass.exceptions.CalledModuleError:
+            try:
+                r.mapcalc('ocean_tmp = if((ocean_min_tmp==1 && esacci_lc_water_tmp==1), 1, 0)', overwrite=self.overwrite)
+            except grass.exceptions.CalledModuleError:
+                pass 
+            
+            try:
+                r.mapcalc(f'{self.mapname} = 1 - ocean_tmp', overwrite=self.overwrite)
+            except grass.exceptions.CalledModuleError:
+                pass 
+    
+    def cleanup(self):
+        # Idea here is to clean up any temporary maps
         pass
 
-    try:
-        r.mapcalc('ocean_min = if(water_bodies_min == 0, 1, 0)', overwrite=overwrite)
-    except grass.exceptions.CalledModuleError:
-        pass
+# def process_land_fraction(config, overwrite=False):
+#     # There is some discrepancy between ESA_CCI_WB and ESA_CCI_LC. To get
+#     # around this we implement a two-step procedure:
+#     # (i)  Aggregate by taking the minimum value, which will in effect
+#     #      classify the 300m grid square as ocean if *any* fine resolution
+#     #      grid squares are classified as ocean.
+#     # (ii) Use the 2015 land cover map to identify ocean cells *if* the
+#     #      LC map contains water (code 210) *and* the map created in (i)
+#     #      is classified as ocean.
 
-    # Calculate ocean grid cells as cells in which ESA CCI LC is classified as water *and* ESA CCI WB (@300m) is classified as ocean 
-    esa_lc_data_directory = config['landcover']['esa']['data_directory']
-    esa_lc_data_file = get_esacci_landcover_map(esa_lc_data_directory, 2015)
-    try:
-        r.in_gdal(input=esa_lc_data_file, output='esacci_lc_ref', overwrite=overwrite)
-    except grass.exceptions.CalledModuleError:
-        pass 
+#     # Read ESACCI water bodies dataset (@150m)
+#     esa_data_file = config['landfraction']['esa']['data_file']
+#     try:
+#         r.in_gdal(input=esa_data_file, output='esa_ocean_land', flags='a', overwrite=overwrite)
+#     except grass.exceptions.CalledModuleError:
+#         pass 
 
-    try:
-        r.mapcalc('esacci_lc_water = if(esacci_lc_ref == 210, 1, 0)', overwrite=overwrite)
-    except grass.exceptions.CalledModuleError:
-        pass
+#     g.region(region='globe_0.002778Deg')
 
-    try:
-        r.mapcalc('ocean = if((ocean_min==1 && esacci_lc_water==1), 1, 0)', overwrite=overwrite)
-    except grass.exceptions.CalledModuleError:
-        pass 
+#     try:
+#         r.resamp_stats(input='esa_ocean_land', output='water_bodies_min', method='minimum', overwrite=overwrite)
+#     except grass.exceptions.CalledModuleError:
+#         pass
 
-    try:
-        r.mapcalc(f'esacci_landfrac_{RGN_STR} = 1 - ocean', overwrite=overwrite)
-    except grass.exceptions.CalledModuleError:
-        pass 
+#     try:
+#         r.mapcalc('ocean_min = if(water_bodies_min == 0, 1, 0)', overwrite=overwrite)
+#     except grass.exceptions.CalledModuleError:
+#         pass
 
-    return 0
+#     # Calculate ocean grid cells as cells in which ESA CCI LC is classified as water *and* ESA CCI WB (@300m) is classified as ocean 
+#     esa_lc_data_directory = config['landcover']['esa']['data_directory']
+#     esa_lc_data_file = get_esacci_landcover_map(esa_lc_data_directory, 2015)
+#     try:
+#         r.in_gdal(input=esa_lc_data_file, output='esacci_lc_ref', overwrite=overwrite)
+#     except grass.exceptions.CalledModuleError:
+#         pass 
+
+#     try:
+#         r.mapcalc('esacci_lc_water = if(esacci_lc_ref == 210, 1, 0)', overwrite=overwrite)
+#     except grass.exceptions.CalledModuleError:
+#         pass
+
+#     try:
+#         r.mapcalc('ocean = if((ocean_min==1 && esacci_lc_water==1), 1, 0)', overwrite=overwrite)
+#     except grass.exceptions.CalledModuleError:
+#         pass 
+
+#     try:
+#         r.mapcalc(f'esacci_landfrac_{RGN_STR} = 1 - ocean', overwrite=overwrite)
+#     except grass.exceptions.CalledModuleError:
+#         pass 
+
+#     return 0
 
 
 # # Calculate ocean grid cells as cells in which ESA CCI LC is classified as

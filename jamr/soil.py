@@ -5,7 +5,13 @@ import re
 import glob
 import time
 import math
+import logging
 import warnings
+
+from typing import List 
+from pathlib import Path
+from collections import namedtuple
+# from dataclasses import dataclass
 
 import grass.script as gscript
 import grass.exceptions 
@@ -16,15 +22,20 @@ from grass.pygrass.modules.shortcuts import raster as r
 
 from osgeo import gdal
 
+import jamr.utils 
+from jamr.dataset import DS, SFDS, MFDS, AncillaryDataset
 from jamr.constants import REGIONS
+
+
+# Configure logging 
+log = logging.getLogger(__name__)
 
 # TODO 
 # - add POLARIS data [USA only]
 # - add Saxton & Rawls PTFs https://doi.org/10.2136/sssaj2005.0117 [USA only]
 # - add Toth et al PTFs [Europe only]
 
-SG_VARIABLES=['bdod', 'cec', 'clay', 'phh2o', 'sand', 'silt', 'soc']
-SG_HORIZONS=['0-5cm', '5-15cm', '15-30cm', '30-60cm', '60-100cm', '100-200cm']
+# SG_VARIABLES=['bdod', 'cec', 'clay', 'phh2o', 'sand', 'silt', 'soc']
 
 # *BUT* - see https://jules.jchmr.org/sites/default/files/McGuireEtAl_soils_JULESAnnualMeeting_20200907v2b.pdf
 # "The K0 & n-exponent values for Sa=Sand are too extreme for JULES to
@@ -65,26 +76,19 @@ WILTING_POINT_SUCTION = 152.9
 class PTF:
     def __init__(self, 
                  method,
-                 clay_content, 
-                 sand_content, 
-                 silt_content,
-                 soil_organic_carbon,
-                 ph_index,
-                 cation_exchange_capacity,
-                 bulk_density,
-                 horizon, 
+                 soilhorizon,
                  region, 
                  overwrite):
 
         self.method = method
-        self.clay_content = clay_content 
-        self.sand_content = sand_content 
-        self.silt_content = silt_content 
-        self.soil_organic_carbon = soil_organic_carbon
-        self.ph_index = ph_index
-        self.cation_exchange_capacity = cation_exchange_capacity
-        self.bulk_density = bulk_density
-        self.horizon = horizon
+        self.clay_content = soilhorizon.mapnames.clay_content 
+        self.sand_content = soilhorizon.mapnames.sand_content 
+        self.silt_content = soilhorizon.mapnames.silt_content 
+        self.soil_organic_carbon = soilhorizon.mapnames.soil_organic_carbon
+        self.ph_index = soilhorizon.mapnames.ph_index
+        self.cation_exchange_capacity = soilhorizon.mapnames.cation_exchange_capacity
+        self.bulk_density = soilhorizon.mapnames.bulk_density
+        self.horizon = soilhorizon.horizon.replace('-', '_')
         self.region = region 
         self.overwrite = overwrite 
 
@@ -92,13 +96,12 @@ class PTF:
         raise NotImplementedError()
 
 class CosbyPTF(PTF):
-    def __init__(self, 
-                 clay_content, 
-                 sand_content, 
-                 horizon,
+    def __init__(self,
+                 soilhorizon,
                  region,
                  overwrite):
-        super().__init__('cosby', clay_content, sand_content, None, None, None, None, None, horizon, region, overwrite)
+        super().__init__('cosby', soilhorizon, region, overwrite)
+        self._set_names() 
 
     def _set_names(self):
         self.lambda_mapname = f'lambda_{self.method}_{self.horizon}_{self.region}'
@@ -183,25 +186,18 @@ class CosbyPTF(PTF):
 class VanGenuchtenPTF(PTF):
     def __init__(self, 
                  method,
-                 clay_content, 
-                 sand_content, 
-                 silt_content,
-                 soil_organic_content,
-                 ph_index,
-                 cation_exchange_capacity,
-                 bulk_density,
-                 horizon,
+                 soilhorizon,
                  region,
                  overwrite):
 
-        super().__init__(
-            method, clay_content, sand_content, silt_content, soil_organic_content, 
-            ph_index, cation_exchange_capacity, bulk_density, horizon, region, overwrite
-        )
+        super().__init__(method, soilhorizon, region, overwrite)
+        self._set_names() 
 
     def _set_names(self):
         self.n_mapname = f'n_{self.method}_{self.horizon}_{self.region}'
         self.alpha_mapname = f'alpha_{self.method}_{self.horizon}_{self.region}'
+        self.psi_mapname = f'psi_{self.method}_{self.horizon}_{self.region}'
+        self.b_mapname = f'b_{self.method}_{self.horizon}_{self.region}'
         self.ksat_mapname = f'ksat_{self.method}_{self.horizon}_{self.region}' 
         self.theta_sat_mapname = f'theta_sat_{self.method}_{self.horizon}_{self.region}' 
         self.theta_crit_mapname = f'theta_crit_{self.method}_{self.horizon}_{self.region}'
@@ -247,17 +243,17 @@ class VanGenuchtenPTF(PTF):
     def van_genuchten_equation(self, suffix, suction, theta_mapname):
         try:
             r.mapcalc(
-    	        f'A_{suffix}_{self.method}_{self.horizon}_{self.region} = ({self.alpha_mapname} * suction) ^ {self.n_mapname}',
+    	        f'A_{suffix}_{self.method}_{self.horizon}_{self.region} = ({self.alpha_mapname} * {suction}) ^ {self.n_mapname}',
                 overwrite=self.overwrite
             )
             r.mapcalc(
                 f'Se_{suffix}_{self.method}_{self.horizon}_{self.region} = (1 + A_{suffix}_{self.method}_{self.horizon}_{self.region}) '
-                '^ ((1 / {self.n_mapname}) - 1)',
+                f'^ ((1 / {self.n_mapname}) - 1)',
                 overwrite=self.overwrite
             )
             r.mapcalc(
     	        f'{theta_mapname} = (Se_{suffix}_{self.method}_{self.horizon}_{self.region} '
-                '* ({self.theta_sat_mapname} - {self.theta_res_mapname})) + {self.theta_res_mapname}',
+                f'* ({self.theta_sat_mapname} - {self.theta_res_mapname})) + {self.theta_res_mapname}',
                 overwrite=self.overwrite
             )
         except grass.exceptions.CalledModuleError:
@@ -272,30 +268,20 @@ class VanGenuchtenPTF(PTF):
 
 class TomasellaHodnettPTF(VanGenuchtenPTF):
     def __init__(self, 
-                 clay_content, 
-                 sand_content, 
-                 silt_content,
-                 soil_organic_content,
-                 ph_index,
-                 cation_exchange_capacity,
-                 bulk_density,
-                 horizon,
+                 soilhorizon,
                  region,
                  overwrite):
 
-        super().__init__(
-            'tomasellahodnett', clay_content, sand_content, silt_content, soil_organic_content, 
-            ph_index, cation_exchange_capacity, bulk_density, horizon, region, overwrite
-        )
+        super().__init__('tomasellahodnett', soilhorizon, region, overwrite)
 
     def van_genuchten_n(self): 
         try:
             r.mapcalc(
                 (
                     f'{self.n_mapname} = exp((62.986 - (0.833 * {self.clay_content}) '
-                    '- (0.529 * ({self.soil_organic_carbon} / 10)) + (0.593 * {self.ph_index} / 10) '
-                    '+ (0.007 * {self.clay_content} * {self.clay_content}) '
-                    '- (0.014 * {self.sand_content} * {self.silt_content})) / 100)'
+                    f'- (0.529 * ({self.soil_organic_carbon} / 10)) + (0.593 * {self.ph_index} / 10) '
+                    f'+ (0.007 * {self.clay_content} * {self.clay_content}) '
+                    f'- (0.014 * {self.sand_content} * {self.silt_content})) / 100)'
                 ),
                 overwrite=self.overwrite
             )
@@ -307,8 +293,8 @@ class TomasellaHodnettPTF(VanGenuchtenPTF):
             r.mapcalc(
                 (
                     f'{self.alpha_mapname} = 9.80665 * exp((-2.294 - (3.526 * {self.silt_content}) '
-                    '+ (2.440 * ({self.soil_organic_carbon} / 10)) - (0.076 * {self.cation_exchange_capacity}) '
-                    '- (11.331 * {self.ph_index} / 10) + (0.019 * {self.silt_content} * {self.silt_content})) / 100)'
+                    f'+ (2.440 * ({self.soil_organic_carbon} / 10)) - (0.076 * {self.cation_exchange_capacity}) '
+                    f'- (11.331 * {self.ph_index} / 10) + (0.019 * {self.silt_content} * {self.silt_content})) / 100)'
                 ),
                 overwrite=self.overwrite
             )
@@ -320,8 +306,8 @@ class TomasellaHodnettPTF(VanGenuchtenPTF):
             r.mapcalc(
                 (
     	            f'{self.theta_sat_mapname} = 0.01 * (81.799 + (0.099 * {self.clay_content}) '
-                    '- (31.42 * {self.bulk_density} * 0.001) + (0.018 * {self.cation_exchange_capacity}) '
-                    '+ (0.451 * {self.ph_index} / 10) - (0.0005 * {self.sand_content} * {self.clay_content}))'
+                    f'- (31.42 * {self.bulk_density} * 0.001) + (0.018 * {self.cation_exchange_capacity}) '
+                    f'+ (0.451 * {self.ph_index} / 10) - (0.0005 * {self.sand_content} * {self.clay_content}))'
                 ),
                 overwrite=self.overwrite
             )
@@ -333,11 +319,11 @@ class TomasellaHodnettPTF(VanGenuchtenPTF):
             r.mapcalc(
                 (
                     f'{self.theta_res_mapname} = 0.01 * (22.733 - (0.164 * {self.sand_content}) '
-                    '+ (0.235 * {self.cation_exchange_capacity}) - (0.831 * {self.ph_index} / 10) '
-                    '+ (0.0018 * {self.clay_content} * {self.clay_content}) '
-                    '+ (0.0026 * {self.sand_content} * {self.clay_content}))'
+                    f'+ (0.235 * {self.cation_exchange_capacity}) - (0.831 * {self.ph_index} / 10) '
+                    f'+ (0.0018 * {self.clay_content} * {self.clay_content}) '
+                    f'+ (0.0026 * {self.sand_content} * {self.clay_content}))'
                 ),
-                self.overwrite
+                overwrite=self.overwrite
             )
         except grass.exceptions.CalledModuleError:
             pass
@@ -347,7 +333,7 @@ class TomasellaHodnettPTF(VanGenuchtenPTF):
         try:
             r.mapcalc(
                 f'{self.ksat_mapname} = (25.4 / (60 * 60)) '
-                '* (10 ^ (-0.60 - (0.0064 * {self.clay_content}) + (0.0126 * {self.sand_content})))',
+                f'* (10 ^ (-0.60 - (0.0064 * {self.clay_content}) + (0.0126 * {self.sand_content})))',
                 overwrite=self.overwrite
             )
         except grass.exceptions.CalledModuleError:
@@ -356,17 +342,14 @@ class TomasellaHodnettPTF(VanGenuchtenPTF):
 
 class USDATextureClass:
     def __init__(self, 
-                 clay_content, 
-                 sand_content, 
-                 silt_content,
-                 horizon,
+                 soilhorizon,
                  region,
                  overwrite):
  
-        self.clay_content = clay_content 
-        self.sand_content = sand_content 
-        self.silt_content = silt_content 
-        self.horizon = horizon 
+        self.clay_content = soilhorizon.mapnames.clay_content 
+        self.sand_content = soilhorizon.mapnames.sand_content 
+        self.silt_content = soilhorizon.mapnames.silt_content 
+        self.horizon = soilhorizon.horizon 
         self.region = region 
         self.overwrite = overwrite 
         self._set_names() 
@@ -392,8 +375,8 @@ class USDATextureClass:
         try:
             r.mapcalc(
                 f'{output} = if(({self.sand_content} >= {sand_min}) & ({self.sand_content} <= {sand_max}) '
-                '& ({self.silt_content} >= {silt_min}) & ({self.silt_content} <= {silt_max}) '
-                '& ({self.clay_content} >= {clay_min}) & ({self.clay_content} <= {clay_max}), 1, 0)',
+                f'& ({self.silt_content} >= {silt_min}) & ({self.silt_content} <= {silt_max}) '
+                f'& ({self.clay_content} >= {clay_min}) & ({self.clay_content} <= {clay_max}), 1, 0)',
                 overwrite=self.overwrite
             )
         except grass.exceptions.CalledModuleError:
@@ -427,17 +410,11 @@ class USDATextureClass:
 
 class ZhangSchaapPTF(VanGenuchtenPTF):
     def __init__(self, 
-                 clay_content, 
-                 sand_content, 
-                 silt_content,
-                 horizon,
+                 soilhorizon,
                  region,
                  overwrite):
 
-        super().__init__(
-            'zhangschaap', clay_content, sand_content, silt_content, 
-            None, None, None, None, horizon, region, overwrite
-        )
+        super().__init__('zhangschaap', soilhorizon, region, overwrite)
 
     def compute(self):
         self.usda = USDATextureClass(
@@ -448,21 +425,20 @@ class ZhangSchaapPTF(VanGenuchtenPTF):
         super().compute()
 
     def _zhang_schaap_equation(self, output, factors):
-# 	"theta_res_rosetta3_${HORIZON}_${RGN_STR} = Cl * 0.1309948472 + SiCl * 0.1236437112 + SaCl * 0.147392179 + ClLo * 0.1072850999 + SiClLo * 0.1196643822 + SaClLo * 0.0933631331 + Lo * 0.0902482845 + SiLo * 0.083186447 + SaLo * 0.0606397155 + Si * 0.0650483449 + LoSa * 0.0581702395 + Sa * 0.0581702395" \
         try:
             r.mapcalc(
 	            f'{output} = {self.usda.usda_clay_mapname} * {factors[0]} ' 
-                '+ {self.usda.usda_silty_clay_mapname} * {factors[1]} '
-                '+ {self.usda.usda_sandy_clay_mapname} * {factors[2]} '
-                '+ {self.usda.usda_clay_loam_mapname} * {factors[3]}'
-                '+ {self.usda.usda_silty_clay_loam_mapname} * {factors[4]}'
-                '+ {self.usda.usda_sandy_clay_loam_mapname} * {factors[5]}'
-                '+ {self.usda.usda_loam_mapname} * {factors[6]} '
-                '+ {self.usda.usda_silt_loam_mapname} * {factors[7]} '
-                '+ {self.usda.usda_sandy_loam_mapname} * {factors[8]} '
-                '+ {self.usda.usda_silt_mapname} * {factors[9]} '
-                '+ {self.usda.usda_loamy_sand_mapname} * {factors[10]} '
-                '+ {self.usda.usda_sand_mapname} * {factors[11]}',
+                f'+ {self.usda.usda_silty_clay_mapname} * {factors[1]} '
+                f'+ {self.usda.usda_sandy_clay_mapname} * {factors[2]} '
+                f'+ {self.usda.usda_clay_loam_mapname} * {factors[3]}'
+                f'+ {self.usda.usda_silty_clay_loam_mapname} * {factors[4]}'
+                f'+ {self.usda.usda_sandy_clay_loam_mapname} * {factors[5]}'
+                f'+ {self.usda.usda_loam_mapname} * {factors[6]} '
+                f'+ {self.usda.usda_silt_loam_mapname} * {factors[7]} '
+                f'+ {self.usda.usda_sandy_loam_mapname} * {factors[8]} '
+                f'+ {self.usda.usda_silt_mapname} * {factors[9]} '
+                f'+ {self.usda.usda_loamy_sand_mapname} * {factors[10]} '
+                f'+ {self.usda.usda_sand_mapname} * {factors[11]}',
                 overwrite=self.overwrite
             )
         except grass.exceptions.CalledModuleError:
@@ -483,77 +459,279 @@ class ZhangSchaapPTF(VanGenuchtenPTF):
     def saturated_hydraulic_conductivity(self):
         self._zhang_schaap_equation(self.ksat_mapname, ZHANGSCHAAP_FACTORS['ksat'])
 
-#     # Remove mask
-#     r.mask -r
-    
-#     # # Reset resolution
-#     # NATIVE_RGN_STR=globe_0.002083Deg
-#     # RGN_STR=globe_0.008333Deg
-#     # g.region region=${RGN_STR}
 
-#     # # Resample rosetta3 maps to 1k resolution
-#     # for VARIABLE in b k_sat psi_m theta_crit theta_sat theta_wilt
-#     # do
-#     # 	r.resamp.stats \
-#     # 	    input=${VARIABLE}_rosetta3_${HORIZON}_${NATIVE_RGN_STR}.tif \
-#     # 	    output=${VARIABLE}_rosetta3_${HORIZON}_${RGN_STR}.tif \
-#     # 	    method=average \
-#     # 	    $OVERWRITE
-#     # done            
-# done
+SoilHorizonMaps = namedtuple(
+    'SoilHorizonMaps', 
+    ['clay_content', 'sand_content', 'silt_content', 'bulk_density', 'cation_exchange_capacity', 'ph_index', 'soil_organic_carbon'],
+    defaults=(None,) * 7
+)
 
-class SoilGrids:
-    def __init__(self, config, overwrite):
-        self.data_directory = config['soil']['soilgrids']['data_directory']
-        self.scratch = config['main']['scratch_directory'] 
-        self.variables = SG_VARIABLES 
-        self.horizons = SG_HORIZONS
-        self.overwrite = bool(overwrite)
 
-    def reproject(self):
+class SoilGridsHorizon(MFDS):
+    def __init__(self, soilgrids, horizon) -> None:
+        self.soilgrids = soilgrids
+        self.data_directory = soilgrids.data_directory
+        self.scratch = soilgrids.scratch
+        self.variables = soilgrids.variables 
+        self.resolution = soilgrids.resolution
+        self.summary_statistic = soilgrids.summary_statistic 
+        self.horizon = horizon
+        super().__init__(soilgrids.config, soilgrids.overwrite)
+
+    @property
+    def _filename_format(self):
+        if self.resolution == 250: 
+            return '{variable}_{horizon}_{statistic}.tif' 
+        elif self.resolution == 1000:
+            return '{variable}_{horizon}_{statistic}_1000.tif'
+        elif self.resolution == 5000:
+            return '{variable}_{horizon}_{statistic}_5000.tif'
+        else:
+            return None
+
+    def get_input_filenames(self):
+        filenames = {}
+        for variable in self.variables:
+            variable_abbr = SG_VARIABLES_ABBR[variable]
+            filenames[variable] = self._filename_format.format(variable=variable_abbr, horizon=self.horizon, statistic=self.summary_statistic)        
+        self.filenames = filenames
+
+    def set_mapnames(self):
+        mapnames = {} 
+        horizon_fmt = self.horizon.replace('-', '_')
+        for variable in self.variables:
+            variable_abbr = SG_VARIABLES_ABBR[variable]
+            mapnames[variable] = f'sg_{self.resolution}_{variable_abbr}_{horizon_fmt}_{self.summary_statistic}'
+        self.mapnames = SoilHorizonMaps(**mapnames)
+
+    def initial(self):
+        self.preprocess()
+        self.read()    
+
+    def preprocess(self):
+        preprocessed_filenames = {}
         opts = gdal.WarpOptions(format='GTiff', outputBounds=[-180, -90, 180, 90], xRes = 1 / 120., yRes = 1 / 120., dstSRS = 'EPSG:4326')
-        for horizon in self.horizons:
-            for variable in self.variables:
-                input_map = os.path.join(self.data_directory, f'{variable}_{horizon}_mean_1000.tif')
-                output_map = os.path.join(self.scratch, f'{variable}_{horizon}_mean_1000_ll.tif')
-                if not os.path.exists(output_map) or self.overwrite:
-                    mymap = gdal.Warp(output_map, input_map, options=opts)
-                    mymap = None
+        for key, filename in self.filenames.items():
+            basename, extension = Path(filename).stem, Path(filename).suffix 
+            input_map = os.path.join(self.data_directory, filename)
+            output_map = os.path.join(self.scratch, basename + '_ll' + extension)
+            preprocessed_filenames[key] = output_map 
+            if not os.path.exists(output_map) or self.overwrite:
+                mymap = gdal.Warp(output_map, input_map, options=opts)
+                mymap = None
+        self.preprocessed_filenames = preprocessed_filenames
 
     def read(self):
-        for horizon in self.horizons:
-            for variable in self.variables:
-                try:
-                    r.in_gdal(
-                        input=os.path.join(self.scratch, f'{variable}_{horizon}_mean_1000_ll.tif'), 
-                        output=f'{variable}_{horizon}', #_init',
-                        flags='a',
-                        overwrite=self.overwrite
-                    )
-                except grass.exceptions.CalledModuleError:
-                    pass
-                # TODO decide whether to fill with HWSD
+        for key, filename in self.preprocessed_filenames.items():
+            mapname = getattr(self.mapnames, key)
+            try:
+                r.in_gdal(input=filename, output=mapname, flags='a', overwrite=self.overwrite)
+            except grass.exceptions.CalledModuleError:
+                pass
+            # TODO decide whether to fill with HWSD
 
-    
-def read_soilgrids_data(config, overwrite):
 
-    sg = SoilGrids(config, overwrite)
-    sg.reproject()
-    sg.read()
+SG_VARIABLES = ['clay_content', 'sand_content', 'silt_content', 'bulk_density', 'cation_exchange_capacity', 'ph_index', 'soil_organic_carbon']
+SG_VARIABLES_ABBR = { 
+    'clay_content': 'clay',
+    'sand_content': 'sand',
+    'silt_content': 'silt',
+    'bulk_density': 'bdod',
+    'cation_exchange_capacity': 'cec',
+    'ph_index': 'phh2o',
+    'soil_organic_carbon': 'soc'
+}
+SG_HORIZONS=['0-5cm', '5-15cm', '15-30cm', '30-60cm', '60-100cm', '60-100cm', '100-200cm']
+SG_SUMMARY_STATISTICS = ['mean', 'Q0.50', 'Q0.05', 'Q0.95']
+SG_RESOLUTIONS = [250, 1000, 5000]
 
-    return 0
 
-def process_soil_data(config, region, overwrite):
+class SoilGrids(MFDS):
+    def __init__(self, 
+                 config: dict, 
+                 overwrite: bool) -> None:
 
-    # Remove mask
-    try:
-        r.mask(flags='r')
-    except grass.exceptions.CalledModuleError:
+        self.data_directory = config['soil']['soilgrids']['data_directory']
+        self.scratch = config['main']['scratch_directory'] 
+        self.variables = config['soil']['soilgrids']['variables']
+        if not all([variable in SG_VARIABLES for variable in self.variables]):
+            raise ValueError()
+
+        self.horizons = config['soil']['soilgrids']['horizons']
+        self.current_horizon = None
+        if not all([horizon in SG_HORIZONS for horizon in self.horizons]):
+            raise ValueError()
+
+        self.resolution = config['soil']['soilgrids']['resolution']
+        if not self.resolution in SG_RESOLUTIONS:
+            raise ValueError()
+
+        self.summary_statistic = config['soil']['soilgrids']['summary_statistic']
+        if not self.summary_statistic in SG_SUMMARY_STATISTICS:
+            raise ValueError() 
+
+        super().__init__(config, overwrite)
+
+    def get_input_filenames(self):
         pass
+
+    def set_mapnames(self):
+        pass
+
+    def initial(self): 
+        data = {}
+        for horizon in self.horizons:
+            self.current_horizon = horizon 
+            horizon_obj = SoilGridsHorizon(self, horizon)
+            horizon_obj.initial() 
+            data[horizon] = horizon_obj
+
+        self.data = data
+
+    def __getitem__(self, key):
+        return self.data[key]
+
+    def __len__(self):
+        return len(self.data) 
+
+    def __setitem__(self, key, value):
+        self.data[key] = value 
+
+    def __delitem__(self, key):
+        del self.data[key]
+
+    def __iter__(self):
+        return iter(self.data)
     
-    sg = SoilGrids(config, overwrite)
-    sg.reproject()
-    sg.read()
+    def items(self):
+        return self.data.items() 
+    
+    def values(self):
+        return self.data.values() 
+    
+    def keys(self):
+        return self.data.keys()
+
+# SOIL_DATASETS = ['SOILGRIDS']
+# SOIL_PTF_CLASSES = {
+#     'COSBY': CosbyPTF,
+#     'TOMASELLAHODNETT': TomasellaHodnettPTF,
+#     'ZHANGSCHAAP': ZhangSchaapPTF
+# }
+# SOIL_PTFS = list(SOIL_PTF_CLASSES.keys())
+
+
+# class SoilProperties:
+#     def __init__(self, 
+#                  config: dict, 
+#                  soil: SoilGrids,
+#                  region: str, 
+#                  overwrite: bool) -> None:
+
+#         self.config = config
+#         # if dataset.upper() not in SOIL_DATASETS:
+#         #     raise ValueError(f'Soil dataset {dataset} not recognised')
+#         self.region = region 
+#         self.overwrite = overwrite  
+#         self.ptf_class = None
+#         jamr.utils.grass_remove_mask() 
+#         jamr.utils.grass_set_named_region()
+
+#     # def _load_soil_data(self):
+#     #     if self.dataset == 'SOILGRIDS':
+#     #         self.soildata = SoilGrids(self.config, SG_VARIABLES, SG_HORIZONS, '1km', 'mean', self.overwrite)
+#     #     self.soildata.initial()
+
+#     def initial(self): 
+#         if self.ptf_class is None: 
+#             raise ValueError('PTF method class is not set')
+        
+#         self.ptf = {}
+#         for i in range(len(self.soildata)):
+#             soilhorizon = self.soildata[i]
+#             horizon = soilhorizon.horizon 
+#             self.ptf[horizon] = self.ptf_class(soilhorizon, self.region, self.overwrite)
+
+#     def compute(self):
+#         for ptf in self.ptf.values():
+#             ptf.compute()
+
+
+class CosbySoilProperties(AncillaryDataset):
+    def __init__(self, config, soil, region, overwrite):
+        super().__init__(config, region, overwrite)
+        self.soildata = soil
+        self.initial() 
+
+    def initial(self):
+        self.ptf = {} 
+        for horizon_name, horizon in self.soildata.items():
+            self.ptf[horizon_name] = CosbyPTF(horizon, self.region, self.overwrite)
+
+    def compute(self):
+        for ptf in self.ptf.values():
+            ptf.compute()
+
+             
+# class TomasellaHodnettSoilProperties(SoilProperties):
+#     def __init__(self, config, dataset, region, overwrite):
+#         super().__init__(config, dataset, region, overwrite)
+#         self.ptf_class = TomasellaHodnettPTF
+
+
+# class ZhangSchaapSoilProperties(SoilProperties):
+#     def __init__(self, config, dataset, region, overwrite):
+#         super().__init__(config, dataset, region, overwrite)
+#         self.ptf_class = ZhangSchaapPTF
+
+
+# def process_soil_data(config, region, overwrite):
+
+#     # Remove mask
+#     try:
+#         r.mask(flags='r')
+#     except grass.exceptions.CalledModuleError:
+#         pass
+
+#     # Load SoilGrids data
+#     soilgrids = SoilGrids(config, SG_VARIABLES, SG_HORIZONS, '1km', 'mean', overwrite)
+#     soilgrids.initial()
+
+#     for i in range(len(soilgrids)):
+#         soilhorizon = soilgrids[i]
+
+#         cosbyptf = CosbyPTF(
+#             soilhorizon.maps.clay_content, 
+#             soilhorizon.maps.sand_content,
+#             soilhorizon.horizon,
+#             region,
+#             overwrite
+#         )
+#         cosbyptf.compute()
+
+#         tomasellahodnett = TomasellaHodnettPTF(
+#             soilhorizon.maps.clay_content, 
+#             soilhorizon.maps.sand_content, 
+#             soilhorizon.maps.silt_content, 
+#             soilhorizon.maps.soil_organic_carbon, 
+#             soilhorizon.maps.ph_index, 
+#             soilhorizon.maps.cation_exchange_capacity, 
+#             soilhorizon.maps.bulk_density, 
+#             soilhorizon.horizon,
+#             region, 
+#             overwrite
+#         )
+#         tomasellahodnett.compute()
+
+#         zhangschaap = ZhangSchaapPTF(
+#             soilhorizon.maps.clay_content,
+#             soilhorizon.maps.sand_content,
+#             soilhorizon.maps.silt_content,
+#             soilhorizon.horizon,
+#             region,
+#             overwrite
+#         )
+#         zhangschaap.compute() 
 
     # # Set user-defined region, check native resolution
     # g.region(region=region, align='globe_0.008333Deg')

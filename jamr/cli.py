@@ -1,7 +1,10 @@
 """Console script for jamr."""
+
+import os
 import sys
 import click
 import tomllib
+import logging
 
 from grass_session import Session
 
@@ -14,10 +17,14 @@ from jamr.download import (download_esacci_landcover,
                            download_merit_hydro)
 
 from jamr.regions import set_regions
-from jamr.elevation import process_merit_dem
-from jamr.landfraction import process_land_fraction
-from jamr.topography import process_topographic_index
-from jamr.soil import process_soil_data
+from jamr.elevation import MERITDEM
+from jamr.landfraction import ESALandFraction
+from jamr.landcover import TerrestrialEcoregions, C4Fraction, ESACCILC, ESACCIWB, Poulter2015PFT
+# from jamr.topography import process_topographic_index
+from jamr.soil import SoilGrids, CosbySoilProperties #, TomasellaHodnettSoilProperties, ZhangSchaapSoilProperties
+
+
+logging.getLogger('jamr').addHandler(logging.NullHandler())
 
 
 def parse_config(config):
@@ -47,12 +54,12 @@ def main(args=None):
 @click.option('--config', default='config.toml', help='Path to configuration file')
 def download(config):
     config_dict = parse_config(config)
-    # download_esacci_landcover(config_dict)
-    # download_esacci_waterbodies(config_dict)
-    # download_soilgrids250m(config_dict)
-    # download_soilgrids1000m(config_dict)
-    # # download_hydrography90m(config_dict)
-    # download_merit_dem(config_dict)
+    download_esacci_landcover(config_dict)
+    download_esacci_waterbodies(config_dict)
+    download_soilgrids250m(config_dict)
+    download_soilgrids1000m(config_dict)
+    # download_hydrography90m(config_dict)
+    download_merit_dem(config_dict)
     download_merit_hydro(config_dict)
 
 
@@ -66,23 +73,43 @@ def preprocess(config):
 
     # Start GRASS session
     session = start_session(gisdb = gisdb)
-
+    
     # Create regions
     set_regions()
 
-    # process_land_fraction(config_dict, overwrite=False)
+    landcover = ESACCILC(config_dict, overwrite=False) 
+    landcover.initial()
+    
+    # # TODO eventually make this into a separate class 
+    # # Load raw data objects
+    # elevation = MERITDEM(config_dict, overwrite=False)
+    # ecoregions = TerrestrialEcoregions(config_dict, overwrite=False)
+    # c4fraction = C4Fraction(config_dict, overwrite=False)
+    # waterbodies = ESACCIWB(config_dict, overwrite=False)
+    # landcover = ESACCILC(config_dict, overwrite=False) 
+    # soil = SoilGrids(config_dict, overwrite=False) 
 
-    # process_merit_dem(config_dict, overwrite=False)
-    region='uk_1.008333Deg'
-    process_soil_data(config_dict, region, overwrite=False)
-    # # TODO download dataset from CEH 
-    # process_topographic_index(config_dict, overwrite=False)
+    # elevation.initial()
+    # ecoregions.initial() 
+    # c4fraction.initial()
+    # waterbodies.initial()
+    # landcover.initial()
+    # soil.initial() 
 
-    # Process land cover fraction
+    # region='uk_0.008333Deg'
 
-    # Process soil
+    # # Now create derived data products 
+    # landfrac = ESALandFraction(config_dict, waterbodies, landcover, region, overwrite=False)
+    # frac = Poulter2015PFT(config_dict, landcover, region, overwrite=False)
+    # soilprops = CosbySoilProperties(config_dict, soil, region, overwrite=False)
 
-    # Leave out for now: routing, overbank flow, LAI etc.
+    # landfrac.compute() 
+    # # frac.compute() 
+    # soilprops.compute() 
+
+    # output_directory = config_dict['main']['output_directory']
+    # os.makedirs(output_directory, exist_ok=True)
+    # frac.write() 
 
     session.close()
 

@@ -4,6 +4,7 @@ title = "JAMR example configuration"
 grass_gis_database = '/exports/geos.ed.ac.uk/moulds_hydro/grassdata'
 data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data'
 scratch_directory = '/exports/geos.ed.ac.uk/moulds_hydro/scratch'
+output_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/JAMR' 
 
 [landfraction]
 [landfraction.esa]
@@ -20,9 +21,21 @@ data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/Hydrography90m'
 data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/marthews_topographic_index'
 
 [landcover]
+[landcover.teow]
+data_file = '/exports/geos.ed.ac.uk/moulds_hydro/data/TEOW/6kcchn7e3u_official_teow.zip'
+
+[landcover.c4]
+data_file = '/exports/geos.ed.ac.uk/moulds_hydro/data/C4/C4_distribution_NUS_v2.2.nc'
+
 [landcover.esa]
 data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/ESACCI_LC'
+start_year = 1993 
+end_year = 2021
 
 [soil]
 [soil.soilgrids]
 data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/SoilGrids_1000m'
+resolution = 1000
+summary_statistic = 'mean'
+variables = ['clay_content', 'sand_content', 'silt_content', 'bulk_density', 'cation_exchange_capacity', 'ph_index', 'soil_organic_carbon']
+horizons = ['0-5cm', '5-15cm', '15-30cm', '30-60cm', '60-100cm', '60-100cm', '100-200cm']
