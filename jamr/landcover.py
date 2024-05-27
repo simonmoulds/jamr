@@ -231,6 +231,137 @@ POULTER_CROSSWALK = {
 }
 
 
+class JULESFivePFT:
+    def __init__(self, config, region, overwrite):
+        ecoregions = TerrestrialEcoregions(config, overwrite=False)
+        ecoregions.initial() 
+        c4fraction = C4Fraction(config, overwrite=False)
+        c4fraction.initial()
+        poulter = Poulter2015PFT(config, landcover, region, overwrite)
+        poulter.compute()
+        self.landcover_types = ['tree_broadleaf', 'tree_needleleaf', 'shrub', '']
+
+    def compute(self):
+        self.compute_tree_broadleaf()
+
+    def set_mapnames(self):
+        mapnames = {}
+        for year in self.years:
+            year_mapnames = {} 
+            for lct in self.landcover_types:
+                year_mapnames[lct] = f'{lct}_{year}_{self.region}'
+            
+            mapnames[year] = year_mapnames
+
+        self.mapnames = mapnames 
+
+    def compute_tree_broadleaf(self, year):
+        output_map = self.mapnames[year]['tree_broadleaf']
+        tree_broadleaf_deciduous_map = self.poulter.mapnames[year]['tree_broadleaf_deciduous']
+        tree_broadleaf_evergreen_map = self.poulter.mapnames[year]['tree_broadleaf_evergreen']
+        try:
+            r.mapcalc(
+                f'{output_map} = {tree_broadleaf_deciduous_map} + {tree_broadleaf_evergreen_map}', 
+                overwrite=self.overwrite
+            )
+        except grass.exceptions.CalledModuleError:
+            pass 
+
+    def compute_tree_needleleaf(self):
+        output_map = self.mapnames[year]['tree_needleleaf']
+        tree_needleleaf_deciduous_map = self.poulter.mapnames[year]['tree_needleleaf_deciduous']
+        tree_needleleaf_evergreen_map = self.poulter.mapnames[year]['tree_needleleaf_evergreen']
+        try:
+            r.mapcalc(
+                f'{output_map} = {tree_needleleaf_deciduous_map} + {tree_needleleaf_evergreen_map}', 
+                overwrite=self.overwrite
+            )
+        except grass.exceptions.CalledModuleError:
+            pass 
+
+    def compute_shrub(self, year):
+        output_map = self.mapnames[year]['shrub']
+        shrub_broadleaf_deciduous_map = self.poulter.mapnames[year]['shrub_broadleaf_deciduous'] 
+        shrub_broadleaf_evergreen_map = self.poulter.mapnames[year]['shrub_broadleaf_evergreen'] 
+        shrub_needleleaf_deciduous_map = self.poulter.mapnames[year]['shrub_needleleaf_deciduous'] 
+        shrub_needleleaf_evergreen_map = self.poulter.mapnames[year]['shrub_needleleaf_evergreen']
+        try:
+            r.mapcalc(
+                f'{output_map} = {shrub_broadleaf_deciduous_map} + {shrub_broadleaf_evergreen_map} '
+                f'+ {shrub_needleleaf_deciduous_map} + {shrub_needleleaf_evergreen_map}',
+                overwrite=self.overwrite
+            )
+        except grass.exceptions.CalledModuleError:
+            pass 
+
+    def compute_c3_grass(self, year):
+        output_map = self.mapnames[year]['c3_grass']
+        natural_grass_map = 'todo'
+        managed_grass_map = 'todo'
+        c4_natural_vegetation_fraction_map = 'todo'
+        c4_crop_fraction_map = 'todo'
+        try:
+            r.mapcalc(
+                f'{output_map} = ({natural_grass_map} * (1 - {c4_natural_vegetation_fraction_map})) '
+                f'+ ({managed_grass_map} * (1 - {c4_crop_fraction_map}))',
+                overwrite=self.overwrite
+            )
+        except grass.exceptions.CalledModuleError:
+            pass 
+
+    def compute_c4_grass(self, year):
+        output_map = self.mapnames[year]['c4_grass']
+        natural_grass_map = 'todo'
+        managed_grass_map = 'todo'
+        c4_natural_vegetation_fraction_map = 'todo'
+        c4_crop_fraction_map = 'todo'
+        try:
+            r.mapcalc(
+                f'{output_map} = ({natural_grass_map} * {c4_natural_vegetation_fraction_map}) '
+                f'+ ({managed_grass_map} * {c4_crop_fraction_map})',
+                overwrite=self.overwrite
+            )
+        except grass.exceptions.CalledModuleError:
+            pass 
+
+    def compute_urban(self, year):
+        output_map = self.mapnames[year]['urban']
+        urban_map = 'todo'
+        try:
+            r.mapcalc(f'{output_map} = {urban_map}', overwrite=self.overwrite)
+        except grass.exceptions.CalledModuleError:
+            pass 
+
+    def compute_water(self, year):
+        output_map = self.mapnames[year]['water']
+        water_map = 'todo'
+        try:
+            r.mapcalc(f'{output_map} = {water_map}', overwrite=self.overwrite)
+        except grass.exceptions.CalledModuleError:
+            pass 
+
+    def compute_bare_soil(self, year):
+        output_map = self.mapnames[year]['bare_soil']
+        bare_soil_map = 'todo'
+        try:
+            r.mapcalc(f'{output_map} = {bare_soil_map}', overwrite=self.overwrite)
+        except grass.exceptions.CalledModuleError:
+            pass 
+
+    def compute_snow_ice(self, year):
+        output_map = self.mapnames[year]['snow_ice']
+        snow_ice_map = 'todo'
+        try:
+            r.mapcalc(f'{output_map} = {snow_ice_map}', overwrite=self.overwrite)
+        except grass.exceptions.CalledModuleError:
+            pass 
+
+
+class JULESNinePFT(JULESFivePFT):
+    def __init__(self, config, region, overwrite):
+        super().__init__(config, region, overwrite)
+
+
 class Poulter2015PFT:
     def __init__(self, config, landcover, region, overwrite):
         self.config = config

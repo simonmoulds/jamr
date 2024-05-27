@@ -39,6 +39,63 @@ def start_session(gisdb):
     PERMANENT.open(gisdb = gisdb, location = "jamr", create_opts='EPSG:4326')
     return PERMANENT
 
+class InputData:
+    def __init__(self, 
+                 config, 
+                 overwrite=False):
+
+        # TODO check classes 
+        # TODO allow user to specify dataset source (perhaps in config?)
+        self.landcover = ESACCILC(config, overwrite)
+        self.waterbodies = ESACCIWB(config, overwrite)
+        self.soil = SoilGrids(config, overwrite)
+        self.elevation = MERITDEM(config, overwrite)
+        self.ecoregions = TerrestrialEcoregions(config, overwrite)
+        self.c4fraction = C4Fraction(config, overwrite)
+
+    def initial(self):
+        self.landcover.initial()
+        self.waterbodies.initial()
+        self.soil.initial()
+        self.elevation.initial()
+        self.ecoregions.initial()
+        self.c4fraction.initial() 
+
+
+class JULESAncillaryData:
+    # def __init__(self, config, inputdata, overwrite):
+    def __init__(self, config, overwrite):
+        self.config = config
+        self.input_data = InputData(config, overwrite)
+        self.input_data.initial()
+        self.landfrac = ESALandFraction()
+        self.frac = [] 
+        self.soil_props = [] 
+
+    def _set_land_fraction(self):
+        self.landfrac = ESALandFraction() 
+
+    def _set_frac(self):
+        # class LandCoverFracFactory()
+        self.frac = []
+        if 'Poulter' in self.config['methods']['frac']:
+            self.frac += Poulter2015PFT()
+
+    def _set_soil_props(self):
+        # class SoilPropertiesFactory()
+        self.soil_props = [] 
+        if 'Cosby' in self.config['methods']['soil_props']:
+            self.soil_props += CosbySoilProperties()
+
+        if 'TomasellaHodnett' in self.config['methods']['soil_props']:
+            self.soil_props += TomasellaHodnettSoilProperties()
+
+    def compute(self):
+        pass
+
+    def write(self):
+        pass 
+
 
 @click.group()
 def main(args=None):
@@ -77,39 +134,27 @@ def preprocess(config):
     # Create regions
     set_regions()
 
-    landcover = ESACCILC(config_dict, overwrite=False) 
-    landcover.initial()
-    
-    # # TODO eventually make this into a separate class 
-    # # Load raw data objects
-    # elevation = MERITDEM(config_dict, overwrite=False)
-    # ecoregions = TerrestrialEcoregions(config_dict, overwrite=False)
-    # c4fraction = C4Fraction(config_dict, overwrite=False)
-    # waterbodies = ESACCIWB(config_dict, overwrite=False)
-    # landcover = ESACCILC(config_dict, overwrite=False) 
-    # soil = SoilGrids(config_dict, overwrite=False) 
+    # Raw data products:
+    # ==================
+    input_data = InputData(config_dict, overwrite=False)
+    input_data.initial()
 
-    # elevation.initial()
-    # ecoregions.initial() 
-    # c4fraction.initial()
-    # waterbodies.initial()
-    # landcover.initial()
-    # soil.initial() 
+    region='uk_0.008333Deg'
 
-    # region='uk_0.008333Deg'
+    # Derived data products:
+    # ======================
 
-    # # Now create derived data products 
-    # landfrac = ESALandFraction(config_dict, waterbodies, landcover, region, overwrite=False)
-    # frac = Poulter2015PFT(config_dict, landcover, region, overwrite=False)
-    # soilprops = CosbySoilProperties(config_dict, soil, region, overwrite=False)
-
+    # landfrac = ESALandFraction(config_dict, input_data, region, overwrite=False)
     # landfrac.compute() 
-    # # frac.compute() 
+
+    # frac = Poulter2015PFT(config_dict, input_data, region, overwrite=False)
+    # frac.compute()
+
+    # soilprops = CosbySoilProperties(config_dict, input_data, region, overwrite=False)
     # soilprops.compute() 
 
     # output_directory = config_dict['main']['output_directory']
     # os.makedirs(output_directory, exist_ok=True)
-    # frac.write() 
 
     session.close()
 
