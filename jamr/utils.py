@@ -11,6 +11,7 @@ import os
 # from pathlib import Path
 # from collections import namedtuple
 # # from dataclasses import dataclass
+from subprocess import PIPE
 
 import grass.script as gscript
 import grass.exceptions 
@@ -21,19 +22,22 @@ from grass.pygrass.modules.shortcuts import raster as r
 
 
 def grass_remove_mask():
-    try:
-        r.mask(flags='r')
-    except grass.exceptions.CalledModuleError:
-        pass
+    # try:
+    #     r.mask(flags='r')
+    # except grass.exceptions.CalledModuleError:
+    #     pass
+    p = gscript.start_command('r.mask', flags='r', stderr=PIPE)
+    stdout, stderr = p.communicate()
 
     return 0
 
 def grass_set_named_region(rgn):
-    try:
-        g.region(region=rgn)
-    except grass.exceptions.CalledModuleError:
-        pass
-    
+    # try:
+    #     g.region(region=rgn)
+    # except grass.exceptions.CalledModuleError:
+    #     pass
+    p = gscript.start_command('g.region', region=rgn, stderr=PIPE)
+    stdout, stderr = p.communicate()
     return 0
 
 def grass_maplist(type='raster', pattern='*', mapset='PERMANENT'):

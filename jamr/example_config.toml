@@ -7,8 +7,9 @@ scratch_directory = '/exports/geos.ed.ac.uk/moulds_hydro/scratch'
 output_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/JAMR' 
 
 [methods]
-landfrac = 'ESA'
+land_fraction = 'ESA'
 frac = ['Poulter']
+npft = [5, 9]
 soil_props = ['Cosby', 'TomasellaHodnett']
 
 [landfraction]

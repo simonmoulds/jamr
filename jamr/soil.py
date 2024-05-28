@@ -11,6 +11,7 @@ import warnings
 from typing import List 
 from pathlib import Path
 from collections import namedtuple
+from subprocess import PIPE, DEVNULL
 # from dataclasses import dataclass
 
 import grass.script as gscript
@@ -524,11 +525,13 @@ class SoilGridsHorizon(MFDS):
     def read(self):
         for key, filename in self.preprocessed_filenames.items():
             mapname = getattr(self.mapnames, key)
-            try:
-                r.in_gdal(input=filename, output=mapname, flags='a', overwrite=self.overwrite)
-            except grass.exceptions.CalledModuleError:
-                pass
-            # TODO decide whether to fill with HWSD
+            # try:
+            #     r.in_gdal(input=filename, output=mapname, flags='a', overwrite=self.overwrite)
+            # except grass.exceptions.CalledModuleError:
+            #     pass
+            # # TODO decide whether to fill with HWSD
+            p = gscript.start_command('r.in.gdal', input=filename, output=mapname, stderr=PIPE)
+            stdout, stderr = p.communicate()
 
 
 SG_VARIABLES = ['clay_content', 'sand_content', 'silt_content', 'bulk_density', 'cation_exchange_capacity', 'ph_index', 'soil_organic_carbon']

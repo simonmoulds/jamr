@@ -12,17 +12,12 @@ from jamr.download import (download_esacci_landcover,
                            download_esacci_waterbodies,
                            download_soilgrids250m,
                            download_soilgrids1000m,
-                           download_hydrography90m,
+                        #    download_hydrography90m,
                            download_merit_dem,
                            download_merit_hydro)
 
 from jamr.regions import set_regions
-from jamr.elevation import MERITDEM
-from jamr.landfraction import ESALandFraction
-from jamr.landcover import TerrestrialEcoregions, C4Fraction, ESACCILC, ESACCIWB, Poulter2015PFT
-# from jamr.topography import process_topographic_index
-from jamr.soil import SoilGrids, CosbySoilProperties #, TomasellaHodnettSoilProperties, ZhangSchaapSoilProperties
-
+from jamr.inputdata import InputData, JULESAncillaryData
 
 logging.getLogger('jamr').addHandler(logging.NullHandler())
 
@@ -38,63 +33,6 @@ def start_session(gisdb):
     PERMANENT = Session()
     PERMANENT.open(gisdb = gisdb, location = "jamr", create_opts='EPSG:4326')
     return PERMANENT
-
-class InputData:
-    def __init__(self, 
-                 config, 
-                 overwrite=False):
-
-        # TODO check classes 
-        # TODO allow user to specify dataset source (perhaps in config?)
-        self.landcover = ESACCILC(config, overwrite)
-        self.waterbodies = ESACCIWB(config, overwrite)
-        self.soil = SoilGrids(config, overwrite)
-        self.elevation = MERITDEM(config, overwrite)
-        self.ecoregions = TerrestrialEcoregions(config, overwrite)
-        self.c4fraction = C4Fraction(config, overwrite)
-
-    def initial(self):
-        self.landcover.initial()
-        self.waterbodies.initial()
-        self.soil.initial()
-        self.elevation.initial()
-        self.ecoregions.initial()
-        self.c4fraction.initial() 
-
-
-class JULESAncillaryData:
-    # def __init__(self, config, inputdata, overwrite):
-    def __init__(self, config, overwrite):
-        self.config = config
-        self.input_data = InputData(config, overwrite)
-        self.input_data.initial()
-        self.landfrac = ESALandFraction()
-        self.frac = [] 
-        self.soil_props = [] 
-
-    def _set_land_fraction(self):
-        self.landfrac = ESALandFraction() 
-
-    def _set_frac(self):
-        # class LandCoverFracFactory()
-        self.frac = []
-        if 'Poulter' in self.config['methods']['frac']:
-            self.frac += Poulter2015PFT()
-
-    def _set_soil_props(self):
-        # class SoilPropertiesFactory()
-        self.soil_props = [] 
-        if 'Cosby' in self.config['methods']['soil_props']:
-            self.soil_props += CosbySoilProperties()
-
-        if 'TomasellaHodnett' in self.config['methods']['soil_props']:
-            self.soil_props += TomasellaHodnettSoilProperties()
-
-    def compute(self):
-        pass
-
-    def write(self):
-        pass 
 
 
 @click.group()
@@ -136,10 +74,13 @@ def preprocess(config):
 
     # Raw data products:
     # ==================
-    input_data = InputData(config_dict, overwrite=False)
-    input_data.initial()
+    inputdata = InputData(config_dict, overwrite=False)
+    inputdata.initial()
+    inputdata.compute()
 
     region='uk_0.008333Deg'
+    output_data = JULESAncillaryData(config_dict, inputdata, region=region, overwrite=True)
+    output_data.compute()
 
     # Derived data products:
     # ======================
