@@ -40,6 +40,11 @@ def grass_set_named_region(rgn):
     stdout, stderr = p.communicate()
     return 0
 
+def grass_set_region(**kwargs):
+    p = gscript.start_command('g.region', **kwargs, stderr=PIPE)
+    stdout, stderr = p.communicate()
+    return 0
+
 def grass_maplist(type='raster', pattern='*', mapset='PERMANENT'):
     maplist = gscript.core.list_grouped(type, pattern=pattern)[mapset]
     return maplist
@@ -50,3 +55,22 @@ def grass_map_exists(type, mapname, mapset='PERMANENT'):
         return True 
     else:
         return False
+
+def grass_print_region():
+    p = gscript.start_command('g.region', flags='p', stderr=PIPE)
+    stdout, stderr = p.communicate()
+    return 0
+
+def grass_region_definition():
+    rgn = gscript.core.region() 
+    rgn_def = {k:v for k, v in rgn.items() if k in ['n', 'e', 's', 'w', 'ewres', 'nsres']}
+    return rgn_def 
+
+def grass_named_region_definition(rgn):
+    # Get the current region 
+    current_rgn_def = grass_region_definition()
+    grass_set_named_region(rgn)
+    rgn_def = grass_region_definition()
+    grass_set_region(**current_rgn_def)
+    return rgn_def
+

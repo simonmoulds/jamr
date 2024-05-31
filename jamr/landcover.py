@@ -24,6 +24,7 @@ from grass.pygrass.modules import Module
 
 from osgeo import gdal, gdalconst
 
+from jamr.utils import *
 from jamr.constants import REGIONS
 from jamr.dataset import DS, SFDS, MFDS
 
@@ -284,21 +285,33 @@ class Poulter2015PFT:
         mult_factor = 1000
         self._write_reclass_rules(pft, factor=mult_factor)
         g.region(raster=input_map)
-        try:
-            r.reclass(
-                input=input_map, 
-                output=output_map + '_step1', 
-                rules='/tmp/rules.txt', 
-                overwrite=self.overwrite
-            )
-        except grass.exceptions.CalledModuleError:
-            pass
+        # try:
+        #     r.reclass(
+        #         input=input_map, 
+        #         output=output_map + '_step1', 
+        #         rules='/tmp/rules.txt', 
+        #         overwrite=self.overwrite
+        #     )
+        # except grass.exceptions.CalledModuleError:
+        #     pass
 
-        # Step 2 - Divide by factor used to convert percentages to integers in step 1 
-        try:
-            r.mapcalc(f'{output_map} = {output_map}_step1 / {mult_factor}', overwrite=self.overwrite)
-        except grass.exceptions.CalledModuleError:
-            pass 
+        p = gscript.start_command('r.reclass', 
+                                  input=input_map, 
+                                  output=output_map + '_step1', 
+                                  rules='/tmp/rules.txt', 
+                                  overwrite=self.overwrite, stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+        # # Step 2 - Divide by factor used to convert percentages to integers in step 1 
+        # try:
+        #     r.mapcalc(f'{output_map} = {output_map}_step1 / {mult_factor}', overwrite=self.overwrite)
+        # except grass.exceptions.CalledModuleError:
+        #     pass 
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {output_map}_step1 / {mult_factor}', 
+                                  overwrite=self.overwrite, 
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
 
         # # Resample to the current region
         # g.region(region=self.region)
@@ -327,21 +340,11 @@ class Poulter2015FivePFT:
     def __init__(self, config, inputdata, region, overwrite):
         self.config = config 
         self.inputdata = inputdata 
+        self.years = inputdata.landcover.years 
         self.pft_names = ['tree_broadleaf', 'tree_needleleaf', 'shrub', 'c3_grass', 'c4_grass', 'urban', 'water', 'bare_soil', 'snow_ice']
+        self.region = region
         self.overwrite = overwrite 
-
-    def compute(self):
-        pass
-        # self.pfts.compute()
-        # self.compute_tree_broadleaf()
-        # self.compute_tree_needleleaf() 
-        # self.compute_shrub()
-        # self.compute_c3_grass()
-        # self.compute_c4_grass() 
-        # self.compute_urban()
-        # self.compute_water()
-        # self.compute_bare_soil()
-        # self.compute_snow_ice()
+        self.set_mapnames()
 
     def set_mapnames(self):
         mapnames = {}
@@ -354,17 +357,26 @@ class Poulter2015FivePFT:
 
         self.mapnames = mapnames 
 
+    def compute(self):
+        self.compute_tree_broadleaf(2015)
+        # self.compute_tree_needleleaf() 
+        # self.compute_shrub()
+        # self.compute_c3_grass()
+        # self.compute_c4_grass() 
+        # self.compute_urban()
+        # self.compute_water()
+        # self.compute_bare_soil()
+        # self.compute_snow_ice()
+
     def compute_tree_broadleaf(self, year):
         output_map = self.mapnames[year]['tree_broadleaf']
-        tree_broadleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['tree_broadleaf_deciduous']
-        tree_broadleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['tree_broadleaf_evergreen']
-        try:
-            r.mapcalc(
-                f'{output_map} = {tree_broadleaf_deciduous_map} + {tree_broadleaf_evergreen_map}', 
-                overwrite=self.overwrite
-            )
-        except grass.exceptions.CalledModuleError:
-            pass 
+        tree_broadleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['trees_broadleaf_deciduous']
+        tree_broadleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['trees_broadleaf_evergreen']
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {tree_broadleaf_deciduous_map} + {tree_broadleaf_evergreen_map}',
+                                  overwrite=self.overwrite, 
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
 
     def compute_tree_needleleaf(self, year):
         output_map = self.mapnames[year]['tree_needleleaf']

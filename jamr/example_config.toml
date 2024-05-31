@@ -35,8 +35,10 @@ data_file = '/exports/geos.ed.ac.uk/moulds_hydro/data/C4/C4_distribution_NUS_v2.
 
 [landcover.esa]
 data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/ESACCI_LC'
-start_year = 1993 
-end_year = 2021
+start_year = 2015 
+end_year = 2015
+# start_year = 1993 
+# end_year = 2021
 
 [soil]
 [soil.soilgrids]

@@ -1,7 +1,7 @@
 
 from jamr.landfraction import LandFraction, ESALandFraction
 from jamr.landcover import ESACCILC, ESACCIWB, TerrestrialEcoregions, C4Fraction, Poulter2015PFT, Poulter2015FivePFT, Poulter2015NinePFT
-from jamr.soil import SoilGrids
+from jamr.soil import SoilGrids, CosbySoilProperties
 from jamr.elevation import MERITDEM
 
 
@@ -27,6 +27,16 @@ class LandCoverFractionFactory:
             elif npft == 9: 
                 return Poulter2015NinePFT(config, inputdata, region, overwrite)
 
+
+class SoilPropsFactory:
+    @staticmethod
+    def create_soil_props(method, config, inputdata, region, overwrite):
+        if method == 'Cosby':
+            return CosbySoilProperties(config, inputdata, region, overwrite)
+        # elif method == 'TomasellaHodnett':
+        #     return TomasellaHodnett()
+        else:
+            raise ValueError(f'Unknown soil properties method: {method}')
 
 
 class InputData:
@@ -69,7 +79,9 @@ class JULESAncillaryData:
         land_fraction_method = self.config['methods']['land_fraction']
         self.landfrac = LandFractionFactory().create_land_fraction(
             land_fraction_method, self.config, self.inputdata, 
-            self.region, self.overwrite
+            self.region, 
+            False
+            # self.overwrite
         )
 
         frac_methods = self.config['methods']['frac']
@@ -80,7 +92,9 @@ class JULESAncillaryData:
             # for n in npft:
             self.frac.append(LandCoverFractionFactory().create_landcover_fraction(
                 method, int(n), self.config, self.inputdata, 
-                self.region, self.overwrite
+                self.region, 
+                False
+                # self.overwrite
             ))
 
     def _set_landfrac(self):
@@ -102,14 +116,13 @@ class JULESAncillaryData:
                     self.region, self.overwrite
                 )
 
-    # def _set_soil_props(self):
-    #     # class SoilPropertiesFactory()
-    #     self.soil_props = [] 
-    #     if 'Cosby' in self.config['methods']['soil_props']:
-    #         self.soil_props += CosbySoilProperties()
-
-    #     if 'TomasellaHodnett' in self.config['methods']['soil_props']:
-    #         self.soil_props += TomasellaHodnettSoilProperties()
+    def _set_soil_props(self):
+        soil_methods = self.config['methods']['soil_props']
+        self.soil_props = [] 
+        for method in soil_methods:
+            self.soil_props += SoilPropsFactory().create_soil_props(method, self.config, self.inputdata, self.region, self.overwrite)
+            # self.soil_props += CosbySoilProperties()
+            # self.soil_props += TomasellaHodnettSoilProperties()
 
     def compute(self):
         self.landfrac.compute()

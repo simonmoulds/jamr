@@ -660,15 +660,17 @@ class SoilGrids(MFDS):
 #             ptf.compute()
 
 
-class CosbySoilProperties(AncillaryDataset):
-    def __init__(self, config, soil, region, overwrite):
-        super().__init__(config, region, overwrite)
-        self.soildata = soil
-        self.initial() 
+class CosbySoilProperties:
+    def __init__(self, config, inputdata, region, overwrite):
+        self.config = config 
+        self.inputdata = inputdata 
+        self.region = region
+        self.overwrite = overwrite 
+        self.set_mapnames()
 
     def initial(self):
         self.ptf = {} 
-        for horizon_name, horizon in self.soildata.items():
+        for horizon_name, horizon in self.inputdata.soil.items():
             self.ptf[horizon_name] = CosbyPTF(horizon, self.region, self.overwrite)
 
     def compute(self):

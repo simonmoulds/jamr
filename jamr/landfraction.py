@@ -4,13 +4,12 @@ import os
 import re
 import glob
 import time
-# import grass.script as gscript
+import grass.script as gscript
 
-import grass.exceptions 
-
-# import grass python libraries
-from grass.pygrass.modules.shortcuts import general as g
-from grass.pygrass.modules.shortcuts import raster as r
+# import grass.exceptions 
+# # import grass python libraries
+# from grass.pygrass.modules.shortcuts import general as g
+# from grass.pygrass.modules.shortcuts import raster as r
 
 from osgeo import gdal
 
@@ -47,44 +46,58 @@ class ESALandFraction(LandFraction):
         p = gscript.start_command('g.region', 
                                   raster=self.inputdata.landcover.mapnames[2015])
         stdout, stderr = p.communicate()
-        
-        p = gscript.start_command('r.resamp.stats', 
-                                  input=self.inputdata.landcover.mapnames[2015],
-                                  output='water_bodies_min_tmp',
-                                  method='minimum',
-                                  overwrite=self.overwrite,
-                                  stderr=PIPE)
-        stdout, stderr = p.communicate()
 
-        # if not grass_map_exists('raster', self.mapname, 'PERMANENT') or self.overwrite:
-        # FIXME resolution might be wrong here
-        p = gscript.start_command('g.region', region=self.region, stderr=PIPE)
-        stdout, stderr = p.communicate()
+        # Set region to have same resolution as above, but extent to match the specified region 
+        rgn_def = grass_region_definition()
+        new_rgn_def = grass_named_region_definition(self.region)
+        new_rgn_def['ewres'] = rgn_def['ewres']
+        new_rgn_def['nsres'] = rgn_def['nsres']
+        new_rgn_def['align'] = self.inputdata.landcover.mapnames[2015]
+        grass_set_region(**new_rgn_def)
 
-        p = gscript.start_command('r.mapcalc', 
-                                  expression='ocean_min_tmp = if(water_bodies_min_tmp == 0, 1, 0)', 
-                                  overwrite=self.overwrite, 
-                                  stderr=PIPE)
-        stdout, stderr = p.communicate()
+        if not grass_map_exists('raster', self.mapname, 'PERMANENT') or self.overwrite:
+            p = gscript.start_command(
+                'r.resamp.stats', 
+                input=self.inputdata.waterbodies.mapnames[-1],
+                output='water_bodies_min_tmp',
+                method='minimum',
+                overwrite=self.overwrite,
+                stderr=PIPE
+            )
+            stdout, stderr = p.communicate()
 
-        esaccilc_ref_map = self.inputdata.landcover[2015]
-        p = gscript.start_command('r.mapcalc', 
-                                  expression=f'esacci_lc_water_tmp = if({esaccilc_ref_map} == 210, 1, 0)', 
-                                  overwrite=self.overwrite, 
-                                  stderr=PIPE)
-        stdout, stderr = p.communicate()
+            p = gscript.start_command(
+                'r.mapcalc', 
+                expression='ocean_min_tmp = if(water_bodies_min_tmp == 0, 1, 0)', 
+                overwrite=self.overwrite, 
+                stderr=PIPE
+            )
+            stdout, stderr = p.communicate()
 
-        p = gscript.start_command('r.mapcalc', 
-                                  expression=f'ocean_tmp = if((ocean_min_tmp==1 && esacci_lc_water_tmp==1), 1, 0)', 
-                                  overwrite=self.overwrite, 
-                                  stderr=PIPE)
-        stdout, stderr = p.communicate()
+            esaccilc_ref_map = self.inputdata.landcover[2015]
+            p = gscript.start_command(
+                'r.mapcalc', 
+                expression=f'esacci_lc_water_tmp = if({esaccilc_ref_map} == 210, 1, 0)', 
+                overwrite=self.overwrite, 
+                stderr=PIPE
+            )
+            stdout, stderr = p.communicate()
 
-        p = gscript.start_command('r.mapcalc', 
-                                  expression=f'{self.mapname} = 1 - ocean_tmp', 
-                                  overwrite=self.overwrite, 
-                                  stderr=PIPE)
-        stdout, stderr = p.communicate()
+            p = gscript.start_command(
+                'r.mapcalc', 
+                expression=f'ocean_tmp = if((ocean_min_tmp==1 && esacci_lc_water_tmp==1), 1, 0)', 
+                overwrite=self.overwrite, 
+                stderr=PIPE
+            )
+            stdout, stderr = p.communicate()
+
+            p = gscript.start_command(
+                'r.mapcalc', 
+                expression=f'{self.mapname} = 1 - ocean_tmp', 
+                overwrite=self.overwrite, 
+                stderr=PIPE
+            )
+            stdout, stderr = p.communicate()
     
     def cleanup(self):
         # Idea here is to clean up any temporary maps
