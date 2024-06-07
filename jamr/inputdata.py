@@ -51,6 +51,7 @@ class InputData:
         self.waterbodies = ESACCIWB(config, overwrite)
         self.soil = SoilGrids(config, overwrite)
         self.elevation = MERITDEM(config, overwrite)
+        # self.ecoregions = TerrestrialEcoregions(config, overwrite)
         self.ecoregions = TerrestrialEcoregions(config, overwrite)
         self.c4fraction = C4Fraction(config, overwrite)
         self.overwrite = overwrite
@@ -88,14 +89,13 @@ class JULESAncillaryData:
         npft = self.config['methods']['npft']
         self.frac = []
         for method in frac_methods:
-            n = 5
-            # for n in npft:
-            self.frac.append(LandCoverFractionFactory().create_landcover_fraction(
-                method, int(n), self.config, self.inputdata, 
-                self.region, 
-                False
-                # self.overwrite
-            ))
+            for n in npft:
+                self.frac.append(LandCoverFractionFactory().create_landcover_fraction(
+                    method, int(n), self.config, self.inputdata, 
+                    self.region, 
+                    True
+                    # self.overwrite
+                ))
 
     def _set_landfrac(self):
         # NOTE only one method allowed

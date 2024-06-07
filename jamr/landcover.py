@@ -17,10 +17,10 @@ from subprocess import PIPE, DEVNULL
 import grass.script as gscript
 import grass.exceptions 
 
-# import grass python libraries
-from grass.pygrass.modules.shortcuts import general as g
-from grass.pygrass.modules.shortcuts import raster as r
-from grass.pygrass.modules import Module 
+# # import grass python libraries
+# from grass.pygrass.modules.shortcuts import general as g
+# from grass.pygrass.modules.shortcuts import raster as r
+# from grass.pygrass.modules import Module 
 
 from osgeo import gdal, gdalconst
 
@@ -41,7 +41,7 @@ class TerrestrialEcoregions(SFDS):
         self.filenames = [self.config['landcover']['teow']['data_file']]
     
     def set_mapnames(self):
-        self.mapnames = ['wwf_terr_ecos_globe_0.008333Deg']
+        self.mapnames = ['tropical_broadleaf_forest_globe_0.008333Deg']
 
     def preprocess(self):
 
@@ -53,32 +53,52 @@ class TerrestrialEcoregions(SFDS):
             f.extractall(scratch)
 
         shpfile = os.path.join(scratch, 'official', 'wwf_terr_ecos.shp')
-        preprocessed_file = os.path.join(scratch, 'wwf_terr_ecos_0.008333Deg.tif')
-        if not os.path.exists(preprocessed_file) or self.overwrite:
+        preprocessed_filename = os.path.join(scratch, 'wwf_terr_ecos_0.008333Deg.tif')
+        if not os.path.exists(preprocessed_filename) or self.overwrite:
             rasterize_opts = gdal.RasterizeOptions(
                 outputBounds=[-180, -90, 180, 90], 
                 outputType=gdalconst.GDT_Byte,
                 width=43200, height=21600, 
                 allTouched=True, attribute='BIOME'
             )
-            gdal.Rasterize(preprocessed_file, shpfile, options=rasterize_opts)
+            gdal.Rasterize(preprocessed_filename, shpfile, options=rasterize_opts)
 
-        self.preprocessed_filenames = [preprocessed_file] 
+        self.preprocessed_filenames = [preprocessed_filename]
 
     def read(self):
-        # try:
-        #     r.in_gdal(input=self.preprocessed_filename, output=self.mapname, flags='a', overwrite=self.overwrite)
-        # except grass.exceptions.CalledModuleError:
-        #     pass
-        p = gscript.start_command('r.in.gdal', input=self.preprocessed_filename, output=self.mapname, stderr=PIPE)
-        stdout, stderr = p.communicate()
+        output_map = self.mapnames[0]
+        if not grass_map_exists('raster', output_map, 'PERMANENT') or self.overwrite:
+            p = gscript.start_command('r.in.gdal', 
+                                    flags='a',
+                                    input=self.preprocessed_filenames[0], 
+                                    output='wwf_terr_ecos_globe_0.008333Deg',
+                                    overwrite=self.overwrite,
+                                    stderr=PIPE)
+            stdout, stderr = p.communicate()
 
+            g.region(region='globe_0.008333Deg')
+            p = gscript.start_command('r.null', map='wwf_terr_ecos_globe_0.008333Deg', setnull=0)
+            stdout, stderr = p.communicate()
+            
+            p = gscript.start_command('r.grow.distance',
+                                    input='wwf_terr_ecos_globe_0.008333Deg',
+                                    value='wwf_terr_ecos_interp_globe_0.008333Deg',
+                                    overwrite=self.overwrite,
+                                    stderr=PIPE)
+            stdout, stderr = p.communicate()
 
+            p = gscript.start_command('r.mapcalc',
+                                    expression=f'tropical_broadleaf_forest_globe_0.008333Deg = if((wwf_terr_ecos_interp_globe_0.008333Deg == 1) | (wwf_terr_ecos_interp_globe_0.008333Deg == 2), 1, 0)',
+                                    overwrite=self.overwrite,
+                                    stderr=PIPE)
+            stdout, stderr = p.communicate()
 
 class C4Fraction(SFDS):
     def __init__(self, config, overwrite):
+        self.years = [yr for yr in range(2001, 2020)]
+        self.variables = ['C4_area', 'C4_grass_area', 'C4_crop_area']
         super().__init__(config, overwrite)
-
+        
     def initial(self):
         self.preprocess()
         self.read()
@@ -87,31 +107,47 @@ class C4Fraction(SFDS):
         self.filenames = [self.config['landcover']['c4']['data_file']]
 
     def set_mapnames(self):
-        self.mapnames = ['c4_distribution_nus_v2.2']
+        mapnames = {}
+        for year in self.years: 
+            year_mapnames = {} 
+            for variable in self.variables:
+                year_mapnames[variable] = f'c4_distribution_nus_v2.2_{variable}_{year}'
+            mapnames[year] = year_mapnames
+        self.mapnames = mapnames 
 
     def preprocess(self):
         scratch = self.config['main']['scratch_directory']
         os.makedirs(scratch, exist_ok=True) # Just in case it's not been created yet
-        preprocessed_file = os.path.join(scratch, 'C4_distribution_NUS_v2.2.tif')
-        if not os.path.exists(preprocessed_file) or self.overwrite:
-            translate_opts = gdal.TranslateOptions(
-                format='GTiff', outputSRS='EPSG:4326', 
-                outputBounds=[-180, 90, 180, -90], 
-                # width=43200, height=21600, resampleAlg='bilinear'
-                width=720, height=360, resampleAlg='bilinear'
-            )
-            input_file = "NETCDF:" + self.filename + ":C4_area"
-            gdal.Translate(preprocessed_file, input_file, options=translate_opts)
+        preprocessed_filenames = {}
+        for variable in self.variables:
+            preprocessed_filename = os.path.join(scratch, f'C4_distribution_NUS_v2.2_{variable}.tif')
+            if not os.path.exists(preprocessed_filename) or self.overwrite:
+                translate_opts = gdal.TranslateOptions(
+                    format='GTiff', outputSRS='EPSG:4326', 
+                    outputBounds=[-180, 90, 180, -90], 
+                    # width=43200, height=21600, resampleAlg='bilinear'
+                    width=720, height=360, resampleAlg='bilinear'
+                )
+                input_file = "NETCDF:" + self.filename + ":" + variable
+                gdal.Translate(preprocessed_filename, input_file, options=translate_opts)
 
-        self.preprocessed_filenames = [preprocessed_file]
+            preprocessed_filenames[variable] = preprocessed_filename
+
+        self.preprocessed_filenames = preprocessed_filenames 
 
     def read(self):
-        # try:
-        #     r.in_gdal(input=self.preprocessed_filename, output=self.mapname, flags='a', overwrite=self.overwrite)
-        # except grass.exceptions.CalledModuleError:
-        #     pass
-        p = gscript.start_command('r.in.gdal', input=self.preprocessed_filename, output=self.mapname, stderr=PIPE)
-        stdout, stderr = p.communicate()
+        for variable in self.variables:
+            input_file = self.preprocessed_filenames[variable]
+            for i in range(len(self.years)):
+                year = self.years[i]
+                band = i + 1
+                mapname = self.mapnames[year][variable]
+                p = gscript.start_command('r.in.gdal', 
+                                          input=input_file, 
+                                          output=mapname, 
+                                          band=band,
+                                          stderr=PIPE)
+                stdout, stderr = p.communicate()
 
 
 class ESACCILC(MFDS):
@@ -193,16 +229,23 @@ class ESACCIWB(SFDS):
         stdout, stderr = p.communicate()
 
 
-POULTER_CROSSWALK = {
+# In original, urban was allocated as follows: 
+# trees_broadleaf_deciduous (0.025)
+# trees_needleleaf_evergreen (0.025)
+# natural_grass (0.15)
+# bare_soil (0.75)
+# water (0.05)
+# Here, we allocate urban to an urban non-vegetated PFT
+ADJUSTED_POULTER_CROSSWALK = {
     'trees_broadleaf_evergreen': {
         30: 0.05, 40: 0.05, 50: 0.90, 100: 0.1, 110: 0.05, 150: 0.01, 160: 0.3, 170: 0.6
     },
     'trees_broadleaf_deciduous': {
         30: 0.05, 40: 0.05, 60: 0.70, 61: 0.70, 62: 0.30, 90: 0.30, 100: 0.20, 
-        110: 0.10, 150: 0.03, 151: 0.02, 160: 0.30, 180: 0.05, 190: 0.025
+        110: 0.10, 150: 0.03, 151: 0.02, 160: 0.30, 180: 0.05 #, 190: 0.025
     },
     'trees_needleleaf_evergreen': {
-        70: 0.70, 71: 0.70, 72: 0.30, 90: 0.20, 100: 0.05, 110: 0.05, 150: 0.01, 151: 0.06, 180: 0.10, 190: 0.025
+        70: 0.70, 71: 0.70, 72: 0.30, 90: 0.20, 100: 0.05, 110: 0.05, 150: 0.01, 151: 0.06, 180: 0.10 #, 190: 0.025
     },
     'trees_needleleaf_deciduous': {
         80: 0.70, 81: 0.70, 82: 0.30, 90: 0.10, 100: 0.05, 151: 0.02
@@ -224,15 +267,21 @@ POULTER_CROSSWALK = {
         30: 0.15, 40: 0.25, 60: 0.15, 61: 0.15, 62: 0.35, 70: 0.15, 71: 0.15, 
         72: 0.30, 80: 0.15, 81: 0.15, 82: 0.30, 90: 0.15, 100: 0.40, 110: 0.60, 
         120: 0.20, 121: 0.20, 122: 0.20, 130: 0.60, 140: 0.60, 150: 0.05, 
-        151: 0.05, 152: 0.05, 153: 0.15, 160: 0.20, 180: 0.40, 190: 0.15
+        151: 0.05, 152: 0.05, 153: 0.15, 160: 0.20, 180: 0.40 #, 190: 0.15
     },
     "crops": {
         10: 1.0, 11: 1.0, 12: 0.50, 20: 1.0, 30: 0.6, 40: 0.4
     }, 
     "bare_soil": {
         62: 0.10, 72: 0.30, 82: 0.30, 90: 0.10, 120: 0.20, 121: 0.20, 122: 0.20, 
-        130: 0.40, 140: 0.40, 150: 0.85, 151: 0.85, 152: 0.85, 153: 0.85, 190: 0.75, 200: 1.0, 201: 1.0, 202: 1.0},
-    "water": {160: 0.20, 170: 0.20, 180: 0.30, 190: 0.05, 210: 1.0}, 
+        130: 0.40, 140: 0.40, 150: 0.85, 151: 0.85, 152: 0.85, 153: 0.85, 
+        # 190: 0.75, 
+        200: 1.0, 201: 1.0, 202: 1.0},
+    "water": {
+        160: 0.20, 170: 0.20, 180: 0.30, 
+        # 190: 0.05, 
+        210: 1.0}, 
+    "urban": {190: 1},
     "snow_ice": {220: 1}
 }
 
@@ -242,8 +291,8 @@ class Poulter2015PFT:
         self.config = config
         self.landcover = landcover 
         self.years = self.landcover.years
-        self.pft_names = list(POULTER_CROSSWALK.keys())
-        self.crosswalk = POULTER_CROSSWALK
+        self.pft_names = list(ADJUSTED_POULTER_CROSSWALK.keys())
+        self.crosswalk = ADJUSTED_POULTER_CROSSWALK
         self.overwrite = overwrite 
         self.set_mapnames()
 
@@ -284,17 +333,8 @@ class Poulter2015PFT:
         # large factor to convert the fractions in the crosswalk table to intgers 
         mult_factor = 1000
         self._write_reclass_rules(pft, factor=mult_factor)
+        
         g.region(raster=input_map)
-        # try:
-        #     r.reclass(
-        #         input=input_map, 
-        #         output=output_map + '_step1', 
-        #         rules='/tmp/rules.txt', 
-        #         overwrite=self.overwrite
-        #     )
-        # except grass.exceptions.CalledModuleError:
-        #     pass
-
         p = gscript.start_command('r.reclass', 
                                   input=input_map, 
                                   output=output_map + '_step1', 
@@ -302,23 +342,12 @@ class Poulter2015PFT:
                                   overwrite=self.overwrite, stderr=PIPE)
         stdout, stderr = p.communicate()
 
-        # # Step 2 - Divide by factor used to convert percentages to integers in step 1 
-        # try:
-        #     r.mapcalc(f'{output_map} = {output_map}_step1 / {mult_factor}', overwrite=self.overwrite)
-        # except grass.exceptions.CalledModuleError:
-        #     pass 
+        # Divide by factor used to convert percentages to integers in step 1 
         p = gscript.start_command('r.mapcalc', 
                                   expression=f'{output_map} = {output_map}_step1 / {mult_factor}', 
                                   overwrite=self.overwrite, 
                                   stderr=PIPE)
         stdout, stderr = p.communicate()
-
-        # # Resample to the current region
-        # g.region(region=self.region)
-        # try:
-        #     r.resamp_stats(input=f'{output_map}_step2', output=output_map, method='average', overwrite=self.overwrite)
-        # except grass.exceptions.CalledModuleError:
-        #     pass 
 
     def compute(self):
         g.region(raster=self.landcover.mapnames[2015])
@@ -328,20 +357,28 @@ class Poulter2015PFT:
 
     def write(self):
         pass
-        # output_directory = self.config['main']['output_directory']
-        # for year in self.years:
-        #     for pft in self.pfts:
-        #         mapname = self.mapnames[year][pft]
-        #         output_filename = os.path.join(output_directory, mapname + '.tif')
-        #         r.out_gdal(input=mapname, output=output_filename, overwrite=self.overwrite)
 
+JULES_5PFT_NAMES = [
+    'tree_broadleaf', 'tree_needleleaf', 'shrub', 'c3_grass', 'c4_grass', 
+    'urban', 'water', 'bare_soil', 'snow_ice'
+]
+JULES_9PFT_NAMES = [
+    'tree_broadleaf_evergreen_tropical', 'tree_broadleaf_evergreen_temperate', 
+    'tree_broadleaf_deciduous', 'tree_needleleaf_evergreen', 'tree_needleleaf_deciduous', 
+    'shrub_evergreen', 'shrub_deciduous', 'c3_grass', 'c4_grass', 
+    'urban', 'water', 'bare_soil', 'snow_ice'
+]
 
-class Poulter2015FivePFT:
-    def __init__(self, config, inputdata, region, overwrite):
+class Poulter2015JulesPFT:
+    def __init__(self, config, inputdata, npft, region, overwrite):
+        if npft == 5:
+            pft_names = JULES_5PFT_NAMES 
+        elif npft == 9:
+            pft_names = JULES_9PFT_NAMES
+        self.pft_names = pft_names
         self.config = config 
         self.inputdata = inputdata 
         self.years = inputdata.landcover.years 
-        self.pft_names = ['tree_broadleaf', 'tree_needleleaf', 'shrub', 'c3_grass', 'c4_grass', 'urban', 'water', 'bare_soil', 'snow_ice']
         self.region = region
         self.overwrite = overwrite 
         self.set_mapnames()
@@ -358,17 +395,95 @@ class Poulter2015FivePFT:
         self.mapnames = mapnames 
 
     def compute(self):
+        raise NotImplementedError 
+
+    def compute_c3_grass(self, year):
+        g.region(region='globe_0.008333Deg')
+        output_map = self.mapnames[year]['c3_grass']
+        natural_grass_map = self.inputdata.pfts.mapnames[year]['natural_grass']
+        managed_grass_map = self.inputdata.pfts.mapnames[year]['crops']
+        # Use 2015 as representative year (TODO better method)
+        # NOTE this may well cause issues at land-ocean boundaries
+        c4_natural_vegetation_fraction_map = self.inputdata.c4fraction.mapnames[2015]['C4_grass_area']
+        c4_crop_fraction_map = self.inputdata.c4fraction.mapnames[2015]['C4_crop_area']
+        p = gscript.start_command('r.mapcalc',
+                                  expression=f'{output_map} = ({natural_grass_map} * (1 - {c4_natural_vegetation_fraction_map})) + ({managed_grass_map} * (1 - {c4_crop_fraction_map}))',
+                                  overwrite=self.overwrite,
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+    def compute_c4_grass(self, year):
+        g.region(region='globe_0.008333Deg')
+        output_map = self.mapnames[year]['c4_grass']
+        natural_grass_map = self.inputdata.pfts.mapnames[year]['natural_grass']
+        managed_grass_map = self.inputdata.pfts.mapnames[year]['crops']
+        # Use 2015 as representative year (TODO better method)
+        c4_natural_vegetation_fraction_map = self.inputdata.c4fraction.mapnames[2015]['C4_grass_area']
+        c4_crop_fraction_map = self.inputdata.c4fraction.mapnames[2015]['C4_crop_area']
+        p = gscript.start_command('r.mapcalc',
+                                  expression=f'{output_map} = ({natural_grass_map} * {c4_natural_vegetation_fraction_map}) + ({managed_grass_map} * {c4_crop_fraction_map})',
+                                  overwrite=self.overwrite,
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+    def compute_urban(self, year):
+        g.region(region='globe_0.008333Deg')
+        output_map = self.mapnames[year]['urban']
+        urban_map = self.inputdata.pfts.mapnames[year]['urban']
+        p = gscript.start_command('r.mapcalc',
+                                  expression=f'{output_map} = {urban_map}',
+                                  overwrite=self.overwrite,
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+    def compute_water(self, year):
+        g.region(region='globe_0.008333Deg')
+        output_map = self.mapnames[year]['water']
+        water_map = self.inputdata.pfts.mapnames[year]['water']
+        p = gscript.start_command('r.mapcalc',
+                                  expression=f'{output_map} = {water_map}',
+                                  overwrite=self.overwrite,
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+    def compute_bare_soil(self, year):
+        g.region(region='globe_0.008333Deg')
+        output_map = self.mapnames[year]['bare_soil']
+        bare_soil_map = self.inputdata.pfts.mapnames[year]['bare_soil']
+        p = gscript.start_command('r.mapcalc',
+                                  expression=f'{output_map} = {bare_soil_map}', 
+                                  overwrite=self.overwrite,
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+    def compute_snow_ice(self, year):
+        g.region(region='globe_0.008333Deg')
+        output_map = self.mapnames[year]['snow_ice']
+        snow_ice_map = self.inputdata.pfts.mapnames[year]['snow_ice']
+        p = gscript.start_command('r.mapcalc',
+                                  expression=f'{output_map} = {snow_ice_map}', 
+                                  overwrite=self.overwrite,
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+
+class Poulter2015FivePFT(Poulter2015JulesPFT):
+    def __init__(self, config, inputdata, region, overwrite):
+        super().__init__(config, inputdata, 5, region, overwrite)
+
+    def compute(self):
         self.compute_tree_broadleaf(2015)
-        # self.compute_tree_needleleaf() 
-        # self.compute_shrub()
-        # self.compute_c3_grass()
-        # self.compute_c4_grass() 
-        # self.compute_urban()
-        # self.compute_water()
-        # self.compute_bare_soil()
-        # self.compute_snow_ice()
+        self.compute_tree_needleleaf(2015) 
+        self.compute_shrub(2015)
+        self.compute_c3_grass(2015)
+        self.compute_c4_grass(2015)
+        self.compute_urban(2015)
+        self.compute_water(2015)
+        self.compute_bare_soil(2015)
+        self.compute_snow_ice(2015)
 
     def compute_tree_broadleaf(self, year):
+        g.region(region='globe_0.008333Deg')
         output_map = self.mapnames[year]['tree_broadleaf']
         tree_broadleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['trees_broadleaf_deciduous']
         tree_broadleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['trees_broadleaf_evergreen']
@@ -379,120 +494,120 @@ class Poulter2015FivePFT:
         stdout, stderr = p.communicate()
 
     def compute_tree_needleleaf(self, year):
+        g.region(region='globe_0.008333Deg')
         output_map = self.mapnames[year]['tree_needleleaf']
-        tree_needleleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['tree_needleleaf_deciduous']
-        tree_needleleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['tree_needleleaf_evergreen']
-        try:
-            r.mapcalc(
-                f'{output_map} = {tree_needleleaf_deciduous_map} + {tree_needleleaf_evergreen_map}', 
-                overwrite=self.overwrite
-            )
-        except grass.exceptions.CalledModuleError:
-            pass 
+        tree_needleleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['trees_needleleaf_deciduous']
+        tree_needleleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['trees_needleleaf_evergreen']
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {tree_needleleaf_deciduous_map} + {tree_needleleaf_evergreen_map}', 
+                                  overwrite=self.overwrite, 
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
 
     def compute_shrub(self, year):
+        g.region(region='globe_0.008333Deg')
         output_map = self.mapnames[year]['shrub']
-        shrub_broadleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['shrub_broadleaf_deciduous'] 
-        shrub_broadleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['shrub_broadleaf_evergreen'] 
-        shrub_needleleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['shrub_needleleaf_deciduous'] 
-        shrub_needleleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['shrub_needleleaf_evergreen']
-        try:
-            r.mapcalc(
-                f'{output_map} = {shrub_broadleaf_deciduous_map} + {shrub_broadleaf_evergreen_map} '
-                f'+ {shrub_needleleaf_deciduous_map} + {shrub_needleleaf_evergreen_map}',
-                overwrite=self.overwrite
-            )
-        except grass.exceptions.CalledModuleError:
-            pass 
-
-    def compute_c3_grass(self, year):
-        output_map = self.mapnames[year]['c3_grass']
-        natural_grass_map = self.inputdata.pfts.mapnames[year]['natural_grass']
-        managed_grass_map = self.inputdata.pfts.mapnames[year]['managed_grass']
-        c4_natural_vegetation_fraction_map = 'todo'
-        c4_crop_fraction_map = 'todo'
-        try:
-            r.mapcalc(
-                f'{output_map} = ({natural_grass_map} * (1 - {c4_natural_vegetation_fraction_map})) '
-                f'+ ({managed_grass_map} * (1 - {c4_crop_fraction_map}))',
-                overwrite=self.overwrite
-            )
-        except grass.exceptions.CalledModuleError:
-            pass 
-
-    def compute_c4_grass(self, year):
-        output_map = self.mapnames[year]['c4_grass']
-        natural_grass_map = self.inputdata.pfts.mapnames[year]['natural_grass']
-        managed_grass_map = self.inputdata.pfts.mapnames[year]['managed_grass']
-        c4_natural_vegetation_fraction_map = 'todo'
-        c4_crop_fraction_map = 'todo'
-        try:
-            r.mapcalc(
-                f'{output_map} = ({natural_grass_map} * {c4_natural_vegetation_fraction_map}) '
-                f'+ ({managed_grass_map} * {c4_crop_fraction_map})',
-                overwrite=self.overwrite
-            )
-        except grass.exceptions.CalledModuleError:
-            pass 
-
-    def compute_urban(self, year):
-        output_map = self.mapnames[year]['urban']
-        urban_map = self.inputdata.pfts.mapnames[year]['urban']
-        try:
-            r.mapcalc(f'{output_map} = {urban_map}', overwrite=self.overwrite)
-        except grass.exceptions.CalledModuleError:
-            pass 
-
-    def compute_water(self, year):
-        output_map = self.mapnames[year]['water']
-        water_map = self.inputdata.pfts.mapnames[year]['water']
-        try:
-            r.mapcalc(f'{output_map} = {water_map}', overwrite=self.overwrite)
-        except grass.exceptions.CalledModuleError:
-            pass 
-
-    def compute_bare_soil(self, year):
-        output_map = self.mapnames[year]['bare_soil']
-        bare_soil_map = self.inputdata.pfts.mapnames[year]['bare_soil']
-        try:
-            r.mapcalc(f'{output_map} = {bare_soil_map}', overwrite=self.overwrite)
-        except grass.exceptions.CalledModuleError:
-            pass 
-
-    def compute_snow_ice(self, year):
-        output_map = self.mapnames[year]['snow_ice']
-        snow_ice_map = self.inputdata.pfts.mapnames[year]['snow_ice']
-        try:
-            r.mapcalc(f'{output_map} = {snow_ice_map}', overwrite=self.overwrite)
-        except grass.exceptions.CalledModuleError:
-            pass 
+        shrub_broadleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['shrubs_broadleaf_deciduous'] 
+        shrub_broadleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['shrubs_broadleaf_evergreen'] 
+        shrub_needleleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['shrubs_needleleaf_deciduous'] 
+        shrub_needleleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['shrubs_needleleaf_evergreen']
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {shrub_broadleaf_deciduous_map} + {shrub_broadleaf_evergreen_map} + {shrub_needleleaf_deciduous_map} + {shrub_needleleaf_evergreen_map}',
+                                  overwrite=self.overwrite,
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
 
 
-class Poulter2015NinePFT(Poulter2015FivePFT):
-    pass
 
+class Poulter2015NinePFT(Poulter2015JulesPFT):
+    def __init__(self, config, inputdata, region, overwrite):
+        super().__init__(config, inputdata, 9, region, overwrite)
+    
+    def compute(self):
+        self.compute_tree_broadleaf_evergreen_tropical(2015)
+        self.compute_tree_broadleaf_evergreen_temperate(2015)
+        self.compute_tree_broadleaf_deciduous(2015) 
+        self.compute_tree_needleleaf_deciduous(2015) 
+        self.compute_tree_needleleaf_evergreen(2015)
+        self.compute_shrub_evergreen(2015)
+        self.compute_shrub_deciduous(2015)
+        self.compute_c3_grass(2015)
+        self.compute_c4_grass(2015)
+        self.compute_urban(2015)
+        self.compute_water(2015)
+        self.compute_bare_soil(2015)
+        self.compute_snow_ice(2015)
 
-#     r.reclass \
-# 	input=esacci_lc_${YEAR} \
-# 	output=esacci_lc_${YEAR}_tree_broadleaf_evergreen_x1000 \
-# 	rules=$AUXDIR/tree_broadleaf_evergreen_reclass.txt \
-# 	$OVERWRITE
+    def compute_tree_broadleaf_evergreen_tropical(self, year):
+        g.region(region='globe_0.008333Deg')
+        output_map = self.mapnames[year]['tree_broadleaf_evergreen_tropical']
+        tree_broadleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['trees_broadleaf_evergreen']
+        tropical_broadleaf_forest_map = self.inputdata.ecoregions.mapnames[0]
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {tree_broadleaf_evergreen_map} * {tropical_broadleaf_forest_map}',
+                                  overwrite=self.overwrite, 
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
 
-#     g.region raster=esacci_lc_${YEAR}
-#     r.reclass \
-# 	input=esacci_lc_${YEAR} \
-# 	output=esacci_lc_${YEAR}_tree_broadleaf_evergreen_x1000 \
-# 	rules=$AUXDIR/tree_broadleaf_evergreen_reclass.txt \
-# 	$OVERWRITE
-#     g.region region=globe_0.008333Deg
-#     r.resamp.stats \
-# 	input=esacci_lc_${YEAR}_tree_broadleaf_evergreen_x1000 \
-# 	output=esacci_lc_${YEAR}_tree_broadleaf_evergreen_globe_0.008333Deg_x1000 \
-# 	method=average \
-# 	$OVERWRITE
-#     r.mapcalc \
-# 	"esacci_lc_${YEAR}_tree_broadleaf_evergreen_globe_0.008333Deg = esacci_lc_${YEAR}_tree_broadleaf_evergreen_globe_0.008333Deg_x1000 / 1000" \
-# 	$OVERWRITE
+    def compute_tree_broadleaf_evergreen_temperate(self, year):
+        g.region(region='globe_0.008333Deg')
+        output_map = self.mapnames[year]['tree_broadleaf_evergreen_temperate']
+        tree_broadleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['trees_broadleaf_evergreen']
+        tropical_broadleaf_forest_map = self.inputdata.ecoregions.mapnames[0]
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {tree_broadleaf_evergreen_map} * (1-{tropical_broadleaf_forest_map})',
+                                  overwrite=self.overwrite, 
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+    def compute_tree_broadleaf_deciduous(self, year):
+        g.region(region='globe_0.008333Deg')
+        output_map = self.mapnames[year]['tree_broadleaf_deciduous']
+        tree_broadleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['trees_broadleaf_deciduous']
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {tree_broadleaf_deciduous_map}',
+                                  overwrite=self.overwrite, 
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+    def compute_tree_needleleaf_evergreen(self, year):
+        output_map = self.mapnames[year]['tree_needleleaf_evergreen']
+        tree_needleleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['trees_needleleaf_evergreen']
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {tree_needleleaf_evergreen_map}',
+                                  overwrite=self.overwrite, 
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+    def compute_tree_needleleaf_deciduous(self, year):
+        output_map = self.mapnames[year]['tree_needleleaf_deciduous']
+        tree_needleleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['trees_needleleaf_deciduous']
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {tree_needleleaf_deciduous_map}',
+                                  overwrite=self.overwrite, 
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+    
+    def compute_shrub_evergreen(self, year):
+        output_map = self.mapnames[year]['shrub_evergreen']
+        shrub_broadleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['shrubs_broadleaf_evergreen'] 
+        shrub_needleleaf_evergreen_map = self.inputdata.pfts.mapnames[year]['shrubs_needleleaf_evergreen']
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {shrub_broadleaf_evergreen_map} + {shrub_needleleaf_evergreen_map}',
+                                  overwrite=self.overwrite, 
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
+    def compute_shrub_deciduous(self, year):
+        output_map = self.mapnames[year]['shrub_deciduous']
+        shrub_broadleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['shrubs_broadleaf_deciduous'] 
+        shrub_needleleaf_deciduous_map = self.inputdata.pfts.mapnames[year]['shrubs_needleleaf_deciduous']
+        p = gscript.start_command('r.mapcalc', 
+                                  expression=f'{output_map} = {shrub_broadleaf_deciduous_map} + {shrub_needleleaf_deciduous_map}',
+                                  overwrite=self.overwrite, 
+                                  stderr=PIPE)
+        stdout, stderr = p.communicate()
+
 
 # # ===========================================================
 # # Import tropical forest area, infill
