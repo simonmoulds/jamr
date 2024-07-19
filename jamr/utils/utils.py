@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import os
+# import os
 # import re
 # import glob
 # import time
@@ -14,7 +14,6 @@ import os
 from subprocess import PIPE
 
 import grass.script as gscript
-import grass.exceptions 
 
 # import grass python libraries
 from grass.pygrass.modules.shortcuts import general as g
@@ -31,6 +30,12 @@ def grass_remove_mask():
 
     return 0
 
+def grass_remove_tmp(type='raster'):
+    p = gscript.start_command('g.remove', type='raster', pattern='*_tmp', flags='f', stderr=PIPE)
+    stdout, stderr = p.communicate()
+
+    return 0
+
 def grass_set_named_region(rgn):
     # try:
     #     g.region(region=rgn)
@@ -39,6 +44,25 @@ def grass_set_named_region(rgn):
     p = gscript.start_command('g.region', region=rgn, stderr=PIPE)
     stdout, stderr = p.communicate()
     return 0
+
+def grass_set_region_from_raster(raster, n=None, s=None, e=None, w=None):
+    # This sets the region to the provided raster
+    p = gscript.start_command('g.region', raster=raster)
+    stdout, stderr = p.communicate()
+    # Retrieve the region definition as a dictionary
+    rgn_def = grass_region_definition()
+    # Define a new region
+    new_rgn_def = {
+        'n': n if n else rgn_def['n'],
+        's': s if s else rgn_def['s'],
+        'e': e if e else rgn_def['e'],
+        'w': w if w else rgn_def['w'],
+        'align': raster,
+        'ewres': rgn_def['ewres'], 
+        'nsres': rgn_def['nsres'], 
+    }
+    grass_set_region(**new_rgn_def)
+    return 0 
 
 def grass_set_region(**kwargs):
     p = gscript.start_command('g.region', **kwargs, stderr=PIPE)

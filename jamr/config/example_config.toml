@@ -6,11 +6,21 @@ data_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data'
 scratch_directory = '/exports/geos.ed.ac.uk/moulds_hydro/scratch'
 output_directory = '/exports/geos.ed.ac.uk/moulds_hydro/data/JAMR' 
 
+[region]
+epsg = 4326
+north = 61
+east = 2
+south = -49
+west = -9
+nsres = 0.083333333
+ewres = 0.083333333
+name = 'uk'
+
 [methods]
 land_fraction = 'ESA'
 frac = ['Poulter']
 npft = [5, 9]
-soil_props = ['Cosby', 'TomasellaHodnett']
+soil_props = ['Cosby']
 
 [landfraction]
 [landfraction.esa]

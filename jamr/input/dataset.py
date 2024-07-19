@@ -3,10 +3,15 @@
 import os
 import re
 import glob
+import logging
+import grass.script as gscript
 
 from abc import ABC, abstractmethod
 
-from jamr.utils import grass_remove_mask, grass_set_named_region
+from jamr.utils import *
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class DS:
@@ -65,19 +70,3 @@ class SFDS(DS):
     def preprocessed_filename(self):
         return self.preprocessed_filenames[0] if isinstance(self.preprocessed_filenames, list) else self.preprocessed_filenames
     
-
-class AncillaryDataset:
-    def __init__(self, 
-                 config: dict,
-                 region: str, 
-                 overwrite: bool) -> None:
-        self.config = config 
-        self.region = region 
-        self.overwrite = overwrite 
-        grass_remove_mask()
-        grass_set_named_region(self.region)
-
-    @abstractmethod 
-    def compute(self):
-        pass
-
