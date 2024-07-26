@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
 
+import netCDF4
+
+# #################################### #
+# I/O constants
+# #################################### #
+
+F8_FILLVAL = netCDF4.default_fillvals['f8']
+F4_FILLVAL = netCDF4.default_fillvals['f4']
+I4_FILLVAL = netCDF4.default_fillvals['i4']
+
+# #################################### #
+# Region constants
+# #################################### #
+
 RESOLUTIONS = [0.5, 0.25, 0.1, 0.125, 1./12, 0.0625, 0.05, 1./24, 1./60, 0.01, 1./120, 1./240, 1./480, 1./360, 1./1200]
 
 EXTENTS = {
@@ -17,11 +31,16 @@ for ext_name, ext in EXTENTS.items():
         rgn_nm = f'{ext_name}_{res_fmt}Deg'
         REGIONS[rgn_nm] = {'extent': ext, 'res': res}
 
+# #################################### #
+# Land cover constants
+# #################################### #
+
 ESA_CCI_LC_YEARS = [y for y in range(1992, 2022)]
 
-# SOILGRIDS_VARIABLES = ['bdod', 'cec', 'clay', 'phh2o', 'sand', 'silt', 'soc']
-# SOILGRIDS_HORIZONS = ['0-5cm', '5-15cm', '15-30cm', '30-60cm', '60-100cm', '100-200cm']
-SG_VARIABLES = ['clay_content', 'sand_content', 'silt_content', 'bulk_density', 'cation_exchange_capacity', 'ph_index', 'soil_organic_carbon']
+# #################################### #
+# Soil constants 
+# #################################### #
+
 SG_VARIABLES_ABBR = { 
     'clay_content': 'clay',
     'sand_content': 'sand',
@@ -31,9 +50,11 @@ SG_VARIABLES_ABBR = {
     'ph_index': 'phh2o',
     'soil_organic_carbon': 'soc'
 }
+SG_VARIABLES = list(SG_VARIABLES_ABBR.keys())
 SG_HORIZONS=['0-5cm', '5-15cm', '15-30cm', '30-60cm', '60-100cm', '60-100cm', '100-200cm']
 SG_SUMMARY_STATISTICS = ['mean', 'Q0.50', 'Q0.05', 'Q0.95']
 SG_RESOLUTIONS = [250, 1000, 5000]
+JULES_SOIL_VARIABLES = ['b', 'psi_m', 'ksat', 'theta_sat', 'theta_crit', 'theta_wilt', 'theta_res']
 
 # *BUT* - see https://jules.jchmr.org/sites/default/files/McGuireEtAl_soils_JULESAnnualMeeting_20200907v2b.pdf
 # "The K0 & n-exponent values for Sa=Sand are too extreme for JULES to

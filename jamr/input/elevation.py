@@ -15,7 +15,7 @@ from grass.pygrass.modules.shortcuts import raster as r
 
 from osgeo import gdal
 
-from jamr.utils.utils import grass_maplist
+from jamr.utils.grass_utils import grass_maplist
 from jamr.utils.constants import REGIONS
 from jamr.input.dataset import DS
 

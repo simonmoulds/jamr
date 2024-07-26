@@ -4,7 +4,7 @@ from subprocess import PIPE
 
 import grass.script as gscript
 
-from jamr.utils.utils import (grass_remove_mask,
+from jamr.utils.grass_utils import (grass_remove_mask,
                               grass_set_region,
                               grass_set_region_from_raster)
 
@@ -46,11 +46,10 @@ class AncillaryDataset:
                          w=self.config['region']['west'])
 
     def _resample(self, input_map, output_map, method):
-        p = gscript.start_command('r.external.out', 
-                                  directory=self.config['main']['output_directory'], 
-                                  format='GTiff', 
-                                  option='COMPRESS=DEFLATE')
-
+        # p = gscript.start_command('r.external.out', 
+        #                           directory=self.config['main']['output_directory'], 
+        #                           format='GTiff', 
+        #                           option='COMPRESS=DEFLATE')
         p = gscript.start_command('r.resamp.stats',
                                   flags='w', # weighted average
                                   input=input_map,
@@ -59,7 +58,5 @@ class AncillaryDataset:
                                   overwrite=self.overwrite,
                                   stderr=PIPE)
         stdout, stderr = p.communicate()
-
-        p = gscript.start_command('r.external.out', flags='r', stderr=PIPE)
-
+        # p = gscript.start_command('r.external.out', flags='r', stderr=PIPE)
         return 0

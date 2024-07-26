@@ -10,7 +10,7 @@ import grass.script as gscript
 from osgeo import gdal, gdalconst
 
 from jamr.input.dataset import SFDS
-from jamr.utils.utils import *
+from jamr.utils.grass_utils import *
 
 
 LOGGER = logging.getLogger(__name__)

@@ -32,6 +32,7 @@ class ESACCIWB(SFDS):
         self.mapnames = ['esa_water_bodies']
 
     def read(self):
+        LOGGER.info('Importing ESA CCI Water Bodies map')
         p = gscript.start_command('r.in.gdal', input=self.preprocessed_filename, output=self.mapname, stderr=PIPE)
         stdout, stderr = p.communicate()
 
@@ -74,6 +75,7 @@ class ESACCILC(MFDS):
 
     def read(self):
         for year in self.years:
+            LOGGER.info(f'Importing land cover map for {year}')
             filename = self.preprocessed_filenames[year]
             mapname = self.mapnames[year]
             # This approach allows us to hide stdout/stderr:

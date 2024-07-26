@@ -1,100 +1,169 @@
-#!/usr/bin/env python3
 
-# import os
-# import re
-# import glob
-# import time
-# import math
-# import logging
-# import warnings
+import os
+import netCDF4
+import rasterio
+import numpy as np
 
-# from pathlib import Path
-# from collections import namedtuple
-# # from dataclasses import dataclass
-from subprocess import PIPE
+from grass.script import array as garray 
+from grass.script import core as grass 
 
-import grass.script as gscript
-
-# import grass python libraries
-from grass.pygrass.modules.shortcuts import general as g
-from grass.pygrass.modules.shortcuts import raster as r
+F8_FILLVAL = netCDF4.default_fillvals['f8']
+F4_FILLVAL = netCDF4.default_fillvals['f4']
+I4_FILLVAL = netCDF4.default_fillvals['i4']
 
 
-def grass_remove_mask():
-    # try:
-    #     r.mask(flags='r')
-    # except grass.exceptions.CalledModuleError:
-    #     pass
-    p = gscript.start_command('r.mask', flags='r', stderr=PIPE)
-    stdout, stderr = p.communicate()
+def raster2array(map):
+    # with rasterio.open(fn) as src:
+    #     transform = src.transform
+    #     extent = src.bounds
+    #     data = src.read(1, masked=False)
+    
+    data = garray.array(map)
+    # data = data.squeeze()
+    region = grass.region()
+    x_vals = np.arange(region['cols']) * region['ewres'] + region['w'] + region['ewres'] / 2.
+    y_vals = np.arange(region['rows']) * region['nsres'] + region['s'] + region['nsres'] / 2. 
+    y_vals = y_vals[::-1] # north-south
+    x_bnds = get_lat_lon_bnds(x_vals, (region['w'], region['e']))
+    y_bnds = get_lat_lon_bnds(y_vals, (region['n'], region['s']))
 
-    return 0
+    # ny = data.shape[0]
+    # nx = data.shape[1]
+    # x_vals = np.arange(nx) * transform[0] + transform[2] + transform[0]/2
+    # y_vals = np.arange(ny) * transform[4] + transform[5] + transform[4]/2
+    # x_bnds = get_lat_lon_bnds(x_vals, (extent.left, extent.right))
+    # y_bnds = get_lat_lon_bnds(y_vals, (extent.top, extent.bottom))
+    coords = (x_vals, y_vals)
+    bnds = (x_bnds, y_bnds)
+    return coords, bnds, data
 
-def grass_remove_tmp(type='raster'):
-    p = gscript.start_command('g.remove', type='raster', pattern='*_tmp', flags='f', stderr=PIPE)
-    stdout, stderr = p.communicate()
 
-    return 0
+def get_lat_lon_grids(lat_vals, lon_vals):
+    """Expand latitude and longitude values to grid."""
+    nlat = len(lat_vals)
+    nlon = len(lon_vals)
+    lon_vals_2d = lon_vals[None, :] * np.ones(nlat)[:, None]
+    lat_vals_2d = lat_vals[:, None] * np.ones(nlon)[None, :]
+    return lon_vals_2d, lat_vals_2d
 
-def grass_set_named_region(rgn):
-    # try:
-    #     g.region(region=rgn)
-    # except grass.exceptions.CalledModuleError:
-    #     pass
-    p = gscript.start_command('g.region', region=rgn, stderr=PIPE)
-    stdout, stderr = p.communicate()
-    return 0
 
-def grass_set_region_from_raster(raster, n=None, s=None, e=None, w=None):
-    # This sets the region to the provided raster
-    p = gscript.start_command('g.region', raster=raster)
-    stdout, stderr = p.communicate()
-    # Retrieve the region definition as a dictionary
-    rgn_def = grass_region_definition()
-    # Define a new region
-    new_rgn_def = {
-        'n': n if n else rgn_def['n'],
-        's': s if s else rgn_def['s'],
-        'e': e if e else rgn_def['e'],
-        'w': w if w else rgn_def['w'],
-        'align': raster,
-        'ewres': rgn_def['ewres'], 
-        'nsres': rgn_def['nsres'], 
-    }
-    grass_set_region(**new_rgn_def)
-    return 0 
+def get_lat_lon_bnds(vals, extent):
+    """Calculate lat/lon bounds."""
+    bound = np.linspace(extent[0], extent[1], endpoint=True, num=len(vals)+1)
+    bounds = np.array([bound[:-1], bound[1:]]).T
+    return bounds
 
-def grass_set_region(**kwargs):
-    p = gscript.start_command('g.region', **kwargs, stderr=PIPE)
-    stdout, stderr = p.communicate()
-    return 0
 
-def grass_maplist(type='raster', pattern='*', mapset='PERMANENT'):
-    maplist = gscript.core.list_grouped(type, pattern=pattern)[mapset]
-    return maplist
+def add_lat_lon_dims_2d(nco, x_dim_name, y_dim_name, x_vals, y_vals, x_bnds, y_bnds):
+    """Add 2d latitude/longitude data to a netCDF object."""    
+    nco.createDimension(y_dim_name, len(y_vals))
+    nco.createDimension(x_dim_name, len(x_vals))
+    nco.createDimension('bnds', 2)
 
-def grass_map_exists(type, mapname, mapset='PERMANENT'):
-    maplist = grass_maplist(type, pattern=mapname, mapset=mapset)
-    if len(maplist) == 1:
-        return True 
-    else:
-        return False
+    # add x dims
+    var = nco.createVariable(
+        x_dim_name, 'f8', (x_dim_name,)
+    )
+    x_bnds_dim_name = x_dim_name + '_bnds'
+    var.axis = 'X'
+    var.bounds = x_bnds_dim_name
+    var.units = 'degrees_east'
+    var.standard_name = x_dim_name
+    var[:] = x_vals
+    # add x bounds
+    var = nco.createVariable(
+        x_bnds_dim_name, 'f8', (x_dim_name, 'bnds')
+    )
+    var[:] = x_bnds
 
-def grass_print_region():
-    p = gscript.start_command('g.region', flags='p', stderr=PIPE)
-    stdout, stderr = p.communicate()
-    return 0
+    # add y dims
+    var = nco.createVariable(
+        y_dim_name, 'f8', (y_dim_name,)
+    )
+    y_bnds_dim_name = y_dim_name + '_bnds'
+    var.axis = 'Y'
+    var.bounds = y_bnds_dim_name
+    var.units = 'degrees_north'
+    var.standard_name = y_dim_name
+    var[:] = y_vals
 
-def grass_region_definition():
-    rgn = gscript.core.region() 
-    rgn_def = {k:v for k, v in rgn.items() if k in ['n', 'e', 's', 'w', 'ewres', 'nsres']}
-    return rgn_def 
+    # add y bounds
+    var = nco.createVariable(
+        y_bnds_dim_name, 'f8', (y_dim_name, 'bnds')
+    )
+    var[:] = y_bnds
 
-def grass_named_region_definition(rgn):
-    # Get the current region 
-    current_rgn_def = grass_region_definition()
-    grass_set_named_region(rgn)
-    rgn_def = grass_region_definition()
-    grass_set_region(**current_rgn_def)
-    return rgn_def
+    # add grid mapping
+    var = nco.createVariable(
+        'latitude_longitude', 'i4'
+    )
+    var.grid_mapping_name = 'latitude_longitude'
+    var.longitude_of_prime_meridian = 0.
+    var.earth_radius = 6371229.
+    
+    return nco
 
+# def get_region_data():
+#     """Function to obtain geospatial parameters."""
+#     ds = rasterio.open(os.environ['JULES_LAND_FRAC_FN'])
+#     land_frac = ds.read(1, masked=False).squeeze()  # squeeze to remove unit dimension
+#     transform = ds.transform                        # affine
+#     extent = ds.bounds
+#     nlat = land_frac.shape[0]                       # nrow
+#     nlon = land_frac.shape[1]                       # ncol
+#     lon_vals = np.arange(nlon) * transform[0] + transform[2] + transform[0]/2
+#     lat_vals = np.arange(nlat) * transform[4] + transform[5] + transform[4]/2
+#     return land_frac, lat_vals, lon_vals, extent
+
+
+
+# # Constants:
+# LAND_FRAC, LAT_VALS, LON_VALS, EXTENT = get_region_data()
+# NLAT = len(LAT_VALS)
+# NLON = len(LON_VALS)
+# LAT_BNDS = get_lat_lon_bnds(LAT_VALS, (EXTENT.top, EXTENT.bottom))
+# LON_BNDS = get_lat_lon_bnds(LON_VALS, (EXTENT.left, EXTENT.right))
+
+# def add_lat_lon_dims_2d(nco, x_dim_name, y_dim_name):
+#     """Add 2d latitude/longitude data to a netCDF object."""    
+#     nco.createDimension(y_dim_name, NLAT)
+#     nco.createDimension(x_dim_name, NLON)
+#     nco.createDimension('bnds', 2)
+#     # add x dims
+#     var = nco.createVariable(
+#         x_dim_name, 'f8', (x_dim_name,)
+#     )
+#     x_bnds_dim_name = x_dim_name + '_bnds'
+#     var.axis = 'X'
+#     var.bounds = x_bnds_dim_name
+#     var.units = 'degrees_east'
+#     var.standard_name = x_dim_name
+#     var[:] = LON_VALS
+#     # add x bounds
+#     var = nco.createVariable(
+#         x_bnds_dim_name, 'f8', (x_dim_name, 'bnds')
+#     )
+#     var[:] = LON_BNDS
+#     # add y dims
+#     var = nco.createVariable(
+#         y_dim_name, 'f8', (y_dim_name,)
+#     )
+#     y_bnds_dim_name = y_dim_name + '_bnds'
+#     var.axis = 'Y'
+#     var.bounds = y_bnds_dim_name
+#     var.units = 'degrees_north'
+#     var.standard_name = y_dim_name
+#     var[:] = LAT_VALS
+#     # add y bounds
+#     var = nco.createVariable(
+#         y_bnds_dim_name, 'f8', (y_dim_name, 'bnds')
+#     )
+#     var[:] = LAT_BNDS
+#     # add grid mapping
+#     var = nco.createVariable(
+#         'latitude_longitude', 'i4'
+#     )
+#     var.grid_mapping_name = 'latitude_longitude'
+#     var.longitude_of_prime_meridian = 0.
+#     var.earth_radius = 6371229.
+#     return nco

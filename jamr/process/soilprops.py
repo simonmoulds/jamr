@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
 
+import os
+import numpy as np
+import netCDF4 
+
 import logging
 
 from subprocess import PIPE
 
 import grass.script as gscript
-import grass.exceptions 
+
+from grass.script import array as garray 
+from grass.script import core as grass 
 
 from grass.pygrass.modules.shortcuts import raster as r
 
 from jamr.process.ancillarydataset import AncillaryDataset
-from jamr.utils.utils import *
-from jamr.utils.constants import (ZHANGSCHAAP_FACTORS, 
+from jamr.utils.grass_utils import *
+from jamr.utils.utils import (raster2array, add_lat_lon_dims_2d, F8_FILLVAL)
+from jamr.utils.constants import (F8_FILLVAL,
+                                  ZHANGSCHAAP_FACTORS, 
                                   CRITICAL_POINT_SUCTION, 
-                                  WILTING_POINT_SUCTION)
+                                  WILTING_POINT_SUCTION,
+                                  JULES_SOIL_VARIABLES)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -55,7 +64,7 @@ class PTF(AncillaryDataset):
         self.bulk_density = soilhorizon.mapnames.bulk_density
         self.horizon = soilhorizon.horizon.replace('-', '_')
         # Variables computed by this class
-        self.variables = ['lambda', 'b', 'psi_m', 'ksat', 'theta_sat', 'theta_crit', 'theta_wilt', 'theta_res']
+        # self.variables = JULES_SOIL_VARIABLES
         grass_remove_mask()
 
 
@@ -120,14 +129,20 @@ class CosbyPTF(PTF):
                  soilhorizon,
                  overwrite):
         super().__init__('cosby', config, inputdata, soilhorizon, overwrite)
+        self.variables = JULES_SOIL_VARIABLES
         self._set_mapnames() 
 
     def _set_mapnames(self):
-        for var in self.variables:
-            vars(self)[f'{var}_mapname_native'] = f'{var}_{self.method}_{self.horizon}_{self.region_name}_native'
-            vars(self)[f'{var}_mapname'] = f'{var}_{self.method}_{self.horizon}_{self.region_name}.tif'
+        for variable in self.variables:
+            vars(self)[f'{variable}_mapname_native'] = f'{variable}_{self.method}_{self.horizon}_{self.region_name}_native'
+            vars(self)[f'{variable}_mapname'] = f'{variable}_{self.method}_{self.horizon}_{self.region_name}'
 
-    def compute(self):
+    def compute(self, landfrac_mapname):
+        
+        # Apply mask based on supplied land fraction map 
+        r.mask(raster=landfrac_mapname, maskcats=1)
+
+        # Compute soil properties 
         self.brooks_corey_b()
         self.air_entry_pressure() 
         self.saturated_hydraulic_conductivity()
@@ -136,8 +151,11 @@ class CosbyPTF(PTF):
         self.wilting_point()
         self.residual_water_content()
 
+        # Remove mask
+        r.mask(flags='r')
+
     def brooks_corey_b(self):
-        LOGGER.debug(f'Computing Brooks Corey b for soil horizon {self.horizon}')
+        LOGGER.info(f'Computing Brooks Corey b for soil horizon {self.horizon}')
         self._set_native_region(self.clay_content)
         cosby_brooks_corey_b(
             self.b_mapname_native, self.soilhorizon.mapnames.clay_content, 
@@ -147,7 +165,7 @@ class CosbyPTF(PTF):
         self._resample(input_map=self.b_mapname_native, output_map=self.b_mapname, method='average')
 
     def air_entry_pressure(self): 
-        LOGGER.debug(f'Computing air entry pressure for soil horizon {self.horizon}')
+        LOGGER.info(f'Computing air entry pressure for soil horizon {self.horizon}')
         self._set_native_region(self.clay_content)
         cosby_brooks_corey_psi_m(
             self.psi_m_mapname_native, self.soilhorizon.mapnames.clay_content, 
@@ -157,7 +175,7 @@ class CosbyPTF(PTF):
         self._resample(input_map=self.psi_m_mapname_native, output_map=self.psi_m_mapname, method='average')
 
     def saturated_hydraulic_conductivity(self):
-        LOGGER.debug(f'Computing saturated hydraulic conductivity for soil horizon {self.horizon}')
+        LOGGER.info(f'Computing saturated hydraulic conductivity for soil horizon {self.horizon}')
         self._set_native_region(self.clay_content)
         cosby_brooks_corey_ksat(
             self.ksat_mapname_native, self.soilhorizon.mapnames.clay_content, 
@@ -167,7 +185,7 @@ class CosbyPTF(PTF):
         self._resample(input_map=self.ksat_mapname_native, output_map=self.ksat_mapname, method='average')
 
     def saturated_water_content(self):
-        LOGGER.debug(f'Computing saturated water content for soil horizon {self.horizon}')
+        LOGGER.info(f'Computing saturated water content for soil horizon {self.horizon}')
         self._set_native_region(self.clay_content)
         cosby_brooks_corey_theta_sat(
             self.theta_sat_mapname_native, self.soilhorizon.mapnames.clay_content, 
@@ -177,7 +195,7 @@ class CosbyPTF(PTF):
         self._resample(input_map=self.theta_sat_mapname_native, output_map=self.theta_sat_mapname, method='average')
 
     def critical_water_content(self):
-        LOGGER.debug(f'Computing critical water content for soil horizon {self.horizon}')
+        LOGGER.info(f'Computing critical water content for soil horizon {self.horizon}')
         self._set_native_region(self.clay_content)
         brooks_corey_eqn(
             self.theta_crit_mapname_native, self.theta_sat_mapname_native, self.psi_m_mapname_native, 
@@ -187,7 +205,7 @@ class CosbyPTF(PTF):
         self._resample(input_map=self.theta_crit_mapname_native, output_map=self.theta_crit_mapname, method='average')
 
     def wilting_point(self):
-        LOGGER.debug(f'Computing wilting point for soil horizon {self.horizon}')
+        LOGGER.info(f'Computing wilting point for soil horizon {self.horizon}')
         self._set_native_region(self.clay_content)
         brooks_corey_eqn(
             self.theta_wilt_mapname_native, self.theta_sat_mapname_native, self.psi_m_mapname_native, 
@@ -197,7 +215,7 @@ class CosbyPTF(PTF):
         self._resample(input_map=self.theta_wilt_mapname_native, output_map=self.theta_wilt_mapname, method='average')
 
     def residual_water_content(self):
-        LOGGER.debug(f'Computing residual water content for soil horizon {self.horizon}')
+        LOGGER.info(f'Computing residual water content for soil horizon {self.horizon}')
         self._set_native_region(self.clay_content)
         cosby_theta_res(self.theta_res_mapname_native, self.overwrite) 
         self._set_target_region()
@@ -225,12 +243,12 @@ class VanGenuchtenPTF(PTF):
         self.theta_wilt_mapname = f'theta_wilt_{self.method}_{self.horizon}_{self.region_name}' 
         self.theta_res_mapname = f'theta_res_{self.method}_{self.horizon}_{self.region_name}'
 
-    def compute(self):
-        grass_set_region_from_raster(raster=self.clay_content,
-                                     n=self.config['region']['north'],
-                                     s=self.config['region']['south'],
-                                     e=self.config['region']['east'],
-                                     w=self.config['region']['west'])
+    def compute(self, landfrac_mapname):
+        # grass_set_region_from_raster(raster=self.clay_content,
+        #                              n=self.config['region']['north'],
+        #                              s=self.config['region']['south'],
+        #                              e=self.config['region']['east'],
+        #                              w=self.config['region']['west'])
         self.van_genuchten_alpha()
         self.van_genuchten_n()
         self.residual_water_content()
@@ -501,10 +519,10 @@ class PTFFactory:
     def create_ptf(method, config, inputdata, horizon, overwrite):
         if method == 'Cosby':
             return CosbyPTF(config, inputdata, horizon, overwrite)
-        elif method == 'TomasellaHodnett':
-            return TomasellaHodnettPTF(config, inputdata, horizon, overwrite)
-        elif method == 'ZhangSchaap':
-            return ZhangSchaapPTF(config, inputdata, horizon, overwrite)
+        # elif method == 'TomasellaHodnett':
+        #     return TomasellaHodnettPTF(config, inputdata, horizon, overwrite)
+        # elif method == 'ZhangSchaap':
+        #     return ZhangSchaapPTF(config, inputdata, horizon, overwrite)
         else:
             raise ValueError(f'Unknown soil properties method: {method}')
 
@@ -515,20 +533,61 @@ class SoilProperties:
         self.config = config 
         self.inputdata = inputdata 
         self.overwrite = overwrite 
+        self.variables = JULES_SOIL_VARIABLES
 
     def initial(self):
         self.ptf = {} 
         for horizon_name, horizon in self.inputdata.soil.items():
             self.ptf[horizon_name] = PTFFactory().create_ptf(self.method, self.config, self.inputdata, horizon, self.overwrite)
 
-    def compute(self):
+    def compute(self, landfrac_mapname):
         # Compute maps at native resolution
         for ptf in self.ptf.values():
-            ptf.compute()
+            ptf.compute(landfrac_mapname)
 
-    def resample(self):
-        pass 
+    def get_data_arrays(self, property):
+        arr_list = []
+        for ptf in self.ptf.values():
+            arr = garray.array(mapname=vars(ptf)[f'{property}_mapname'])
+            arr_list.append(arr)
 
-    def write(self):
-        pass 
+        arr = np.stack(arr_list) 
+        return arr
+       
+
+    def write_netcdf(self, landfrac_mapname):
+        coords, bnds, land_frac = raster2array(landfrac_mapname)
+        output_filename = os.path.join(self.config['main']['output_directory'], f'jamr_soil_props.nc')
+
+        # TODO put in config?
+        x_dim_name = 'x'
+        y_dim_name = 'y'
+        soil_dim_name = 'soil'
+
+        nco = netCDF4.Dataset(output_filename, 'w', format='NETCDF4')
+        ntype = len(self.ptf)
+        nco = add_lat_lon_dims_2d(nco, x_dim_name, y_dim_name, coords[0], coords[1], bnds[0], bnds[1])
+
+        nco.createDimension(soil_dim_name, ntype)
+        var = nco.createVariable(soil_dim_name, 'i4', (soil_dim_name,))
+        var.units = '1'
+        var.standard_name = soil_dim_name
+        var.long_name = soil_dim_name
+        var[:] = np.arange(1, ntype+1)
+        
+        for property in self.variables:
+            arr = self.get_data_arrays(property)
+            mask = np.broadcast_to(np.logical_not(land_frac), arr.shape)
+            arr = np.ma.array(arr, mask=mask, dtype=np.float64, fill_value=F8_FILLVAL)
+
+            var = nco.createVariable(
+                property, 'f8', (soil_dim_name, y_dim_name, x_dim_name),
+                fill_value=F8_FILLVAL
+            )
+            var.units = '1'
+            var.standard_name = property
+            var.grid_mapping = 'latitude_longitude'
+            var[:] = arr
+
              
+        nco.close()

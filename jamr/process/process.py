@@ -43,7 +43,7 @@ class ProcessData:
                 self.frac.append(LandCoverFractionFactory().create_landcover_fraction(
                     method, int(n), self.config, self.inputdata, 
                     # self.overwrite
-                    False
+                    True
                 ))
 
         # More than one method allowed
@@ -62,14 +62,19 @@ class ProcessData:
         
     def compute(self):
         self.landfrac.compute()
-
+        landfrac_mapname = self.landfrac.mapname_native
         for frac_obj in self.frac: 
-            frac_obj.compute()
+            frac_obj.compute(landfrac_mapname)
 
         for soil_props_obj in self.soil_props:
-            soil_props_obj.compute()
+            soil_props_obj.compute(landfrac_mapname)
 
     def write(self):
-        # for frac_obj in self.frac: 
-        #     frac_obj.write()
         self.landfrac.write_netcdf()
+        
+        landfrac_mapname = self.landfrac.mapname
+        for frac_obj in self.frac: 
+            frac_obj.write_netcdf(landfrac_mapname)
+        
+        for soil_props_obj in self.soil_props:
+            soil_props_obj.write_netcdf(landfrac_mapname)

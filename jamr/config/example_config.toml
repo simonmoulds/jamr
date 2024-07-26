@@ -19,7 +19,7 @@ name = 'uk'
 [methods]
 land_fraction = 'ESA'
 frac = ['Poulter']
-npft = [5, 9]
+npft = [5]
 soil_props = ['Cosby']
 
 [landfraction]
